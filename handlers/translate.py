@@ -1,139 +1,144 @@
 """
-Translation: .tr [lang] (reply to a message)
-Default target language: Turkish (tr)
-Supports: .tr en, .tr de, .tr fr, .tr ar, etc.
-Also: .translate [lang] [text] for inline translation
+Translation: .tr [lang] (reply) | .tr [lang] [text]
+Default: Turkish. Supports 50+ languages.
 """
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-
-import re as re_mod
+from utils import dot_filter
 
 try:
-    from deep_translator import GoogleTranslator
-    TRANSLATE_AVAILABLE = True
+    from deep_translator import GoogleTranslator, single_detection
+    TRANSLATE_OK = True
 except ImportError:
-    TRANSLATE_AVAILABLE = False
+    TRANSLATE_OK = False
 
-
-LANG_ALIASES = {
-    "tr": "tr",
-    "turkce": "tr",
-    "turkish": "tr",
-    "en": "en",
-    "english": "en",
-    "ingilizce": "en",
-    "de": "de",
-    "german": "de",
-    "almanca": "de",
-    "fr": "fr",
-    "french": "fr",
-    "fransizca": "fr",
-    "es": "es",
-    "spanish": "es",
-    "ispanyolca": "es",
-    "ar": "ar",
-    "arabic": "ar",
-    "arapca": "ar",
-    "ru": "ru",
-    "russian": "ru",
-    "rusca": "ru",
-    "it": "it",
-    "italian": "it",
-    "italyanca": "it",
-    "pt": "pt",
-    "portuguese": "pt",
-    "portekizce": "pt",
-    "nl": "nl",
-    "dutch": "nl",
-    "jp": "ja",
-    "ja": "ja",
-    "japanese": "ja",
-    "japonca": "ja",
-    "zh": "zh-CN",
-    "chinese": "zh-CN",
-    "cince": "zh-CN",
-    "ko": "ko",
-    "korean": "ko",
-    "korece": "ko",
-    "fa": "fa",
-    "persian": "fa",
-    "farsca": "fa",
-    "uk": "uk",
-    "ukrainian": "uk",
-    "ukraynaca": "uk",
+_ALIASES = {
+    "tr": "tr", "turkce": "tr", "turkish": "tr",
+    "en": "en", "english": "en", "ingilizce": "en",
+    "de": "de", "german": "de", "almanca": "de",
+    "fr": "fr", "french": "fr", "fransizca": "fr",
+    "es": "es", "spanish": "es", "ispanyolca": "es",
+    "it": "it", "italian": "it", "italyanca": "it",
+    "pt": "pt", "portuguese": "pt", "portekizce": "pt",
+    "ru": "ru", "russian": "ru", "rusca": "ru",
+    "ar": "ar", "arabic": "ar", "arapca": "ar",
+    "ja": "ja", "jp": "ja", "japanese": "ja", "japonca": "ja",
+    "zh": "zh-CN", "cn": "zh-CN", "chinese": "zh-CN", "cince": "zh-CN",
+    "ko": "ko", "korean": "ko", "korece": "ko",
+    "fa": "fa", "persian": "fa", "farsca": "fa",
+    "uk": "uk", "ukrainian": "uk", "ukraynaca": "uk",
+    "pl": "pl", "polish": "pl", "polonyaca": "pl",
+    "nl": "nl", "dutch": "nl", "hollandaca": "nl",
+    "sv": "sv", "swedish": "sv", "isvecce": "sv",
+    "no": "no", "norwegian": "no", "norvecce": "no",
+    "fi": "fi", "finnish": "fi", "fince": "fi",
+    "da": "da", "danish": "da", "danimarkaca": "da",
+    "el": "el", "greek": "el", "rumca": "el",
+    "he": "he", "hebrew": "he", "ibranice": "he",
+    "hi": "hi", "hindi": "hi",
+    "id": "id", "indonesian": "id", "endonezce": "id",
+    "ms": "ms", "malay": "ms", "malezce": "ms",
+    "th": "th", "thai": "th", "tayca": "th",
+    "vi": "vi", "vietnamese": "vi", "vietnamca": "vi",
+    "ro": "ro", "romanian": "ro", "rumence": "ro",
+    "hu": "hu", "hungarian": "hu", "macarca": "hu",
+    "cs": "cs", "czech": "cs", "cekce": "cs",
+    "bg": "bg", "bulgarian": "bg", "bulgarca": "bg",
+    "sr": "sr", "serbian": "sr", "sirpca": "sr",
+    "hr": "hr", "croatian": "hr", "hirvatca": "hr",
+    "sk": "sk", "slovak": "sk", "slovakca": "sk",
+    "lt": "lt", "lithuanian": "lt", "litvanca": "lt",
+    "lv": "lv", "latvian": "lv", "letonca": "lv",
+    "et": "et", "estonian": "et", "estonca": "et",
+    "az": "az", "azerbaijani": "az", "azerbaycanca": "az",
+    "ka": "ka", "georgian": "ka", "gurcuce": "ka",
+    "hy": "hy", "armenian": "hy", "ermenice": "hy",
+    "kk": "kk", "kazakh": "kk", "kazakca": "kk",
+    "uz": "uz", "uzbek": "uz", "ozbekce": "uz",
 }
 
 
-def _dot_filter(cmd: str):
-    return filters.Regex(rf"^[./!]{re_mod.escape(cmd)}(\s|$)")
-
-
-def _resolve_lang(arg: str) -> str:
-    return LANG_ALIASES.get(arg.lower(), arg.lower())
+def _resolve_lang(s: str) -> str:
+    return _ALIASES.get(s.lower(), s.lower())
 
 
 async def translate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
 
-    if not TRANSLATE_AVAILABLE:
-        await msg.reply_text(
-            "Ceviri modulu yuklu degil. `pip install deep-translator` calistir.",
+    if not TRANSLATE_OK:
+        return await msg.reply_text(
+            "Ceviri modulu eksik. Calistir:\n`pip install deep-translator`",
             parse_mode="Markdown",
         )
-        return
 
     args = context.args or []
-    target_lang = "tr"
+    target = "tr"
+    text_to_tr = None
 
-    # Determine target language
-    if args and not msg.reply_to_message:
-        # .tr lang some text to translate
+    if args:
         candidate = _resolve_lang(args[0])
-        target_lang = candidate
-        text_to_translate = " ".join(args[1:])
-    elif args and msg.reply_to_message:
-        # .tr lang (replying to a message)
-        target_lang = _resolve_lang(args[0])
-        text_to_translate = None
-    else:
-        text_to_translate = None
-
-    # Get text from reply if not inline
-    if text_to_translate is None:
-        if msg.reply_to_message:
-            source_msg = msg.reply_to_message
-            text_to_translate = (
-                source_msg.text or source_msg.caption or ""
-            )
+        if candidate in GoogleTranslator().get_supported_languages(as_dict=True).values() \
+                or candidate in _ALIASES.values():
+            target = candidate
+            args = args[1:]
         else:
-            await msg.reply_text(
-                "Nasil kullanilir:\n"
-                "• Bir mesaja reply at: .tr [dil]\n"
-                "• Inline: .tr [dil] [metin]\n"
-                "• Varsayilan dil: Turkce\n\n"
-                "Ornek: .tr en Merhaba dunya"
-            )
-            return
+            # First arg might be text, not a lang
+            pass
 
-    if not text_to_translate.strip():
-        await msg.reply_text("Cevrilecek metin bulunamadi.")
-        return
+    if args:
+        text_to_tr = " ".join(args)
+    elif msg.reply_to_message:
+        r = msg.reply_to_message
+        text_to_tr = r.text or r.caption or ""
+
+    if not text_to_tr:
+        return await msg.reply_text(
+            "Nasil kullanilir:\n"
+            "• Bir mesaja reply at: .tr [dil]\n"
+            "• Inline: .tr [dil] [metin]\n\n"
+            "Dil ornekleri: tr en de fr es ar ru ja zh ko\n"
+            "Varsayilan: Turkce"
+        )
 
     try:
-        translator = GoogleTranslator(source="auto", target=target_lang)
-        translated = translator.translate(text_to_translate)
+        translator = GoogleTranslator(source="auto", target=target)
+        result = translator.translate(text_to_tr.strip())
+
+        # Try to detect source language
+        try:
+            src = GoogleTranslator(source="auto", target="en").translate(
+                text_to_tr[:30]
+            )
+            detected = ""
+        except Exception:
+            detected = ""
+
         await msg.reply_text(
-            f"<b>Ceviri ({target_lang.upper()}):</b>\n{translated}",
+            f"🌐 <b>Ceviri ({target.upper()}):</b>\n{result}",
             parse_mode="HTML",
         )
     except Exception as e:
         await msg.reply_text(f"Ceviri basarisiz: {e}")
 
 
+async def langs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    common = [
+        "tr - Turkce", "en - Ingilizce", "de - Almanca",
+        "fr - Fransizca", "es - Ispanyolca", "ar - Arapca",
+        "ru - Rusca", "ja - Japonca", "zh - Cince",
+        "ko - Korece", "it - Italyanca", "pt - Portekizce",
+        "fa - Farsca", "uk - Ukraynaca", "hi - Hintce",
+    ]
+    await update.effective_message.reply_text(
+        "<b>Desteklenen Diller (ornek):</b>\n" + "\n".join(f"  {l}" for l in common) +
+        "\n\n50+ dil destekleniyor. ISO kodu kullan.",
+        parse_mode="HTML",
+    )
+
+
 def register_translate_handlers(app):
     for cmd in ("tr", "translate", "cevir"):
         app.add_handler(CommandHandler(cmd, translate_cmd))
-        app.add_handler(
-            MessageHandler(filters.TEXT & _dot_filter(cmd), translate_cmd)
-        )
+        app.add_handler(MessageHandler(filters.TEXT & dot_filter(cmd), translate_cmd))
+    app.add_handler(CommandHandler("langs", langs_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & dot_filter("langs"), langs_cmd))
