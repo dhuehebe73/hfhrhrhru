@@ -24,6 +24,7 @@ from handlers.notes       import register_notes_handlers
 from handlers.downloader  import register_downloader_handlers
 from handlers.giveaway    import register_giveaway_handlers
 from handlers.extras      import register_extras_handlers
+from handlers.settings    import register_settings_handlers
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -61,6 +62,7 @@ def main():
     register_downloader_handlers(app)  # .play .video .dl + auto-detect URLs
     register_giveaway_handlers(app)    # .giveaway .gend .greroll
     register_extras_handlers(app)      # .broadcast .afk .back .dice .flip .calc .weather .poll .report
+    register_settings_handlers(app)   # /settings inline panel with toggles
 
     logger.info("Polling baslatiliyor...")
     app.run_polling(
