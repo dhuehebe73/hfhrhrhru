@@ -17,7 +17,6 @@ from utils import (
     is_admin,
 )
 from config import LOG_CHANNEL
-from handlers.warnings import _do_warn
 
 
 async def _log(context, text: str):

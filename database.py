@@ -215,6 +215,17 @@ async def set_welcome_field(chat_id: int, field: str, value):
         await db.commit()
 
 
+# ═══ RULES (wrapper over welcome.rules_text) ══════════════════════════════════
+
+async def get_rules(chat_id: int) -> str:
+    row = await get_welcome_row(chat_id)
+    return row.get("rules_text", "")
+
+
+async def set_rules(chat_id: int, content: str):
+    await set_welcome_field(chat_id, "rules_text", content)
+
+
 # ═══ LEFT MEMBERS ════════════════════════════════════════════════════════════
 
 async def mark_left(user_id: int, chat_id: int):
