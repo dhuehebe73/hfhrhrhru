@@ -7,6 +7,7 @@ Giveaway / Raffle system
 import random
 import time
 import html
+import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -85,22 +86,15 @@ async def giveaway_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sent.edit_reply_markup(_enter_kb(gid, 0))
 
     # Schedule auto-end
-    context.job_queue.run_once(
-        _auto_end_giveaway, duration_secs,
-        data={"gid": gid, "chat_id": chat_id},
-        name=f"giveaway_{gid}",
-    )
+    async def _auto_end():
+        await asyncio.sleep(duration_secs)
+        await _finish_giveaway(context, gid, chat_id)
+    asyncio.create_task(_auto_end())
 
     await msg.reply_text(
         f"Cekilis baslatildi! {fmt_time(duration_secs)} sonra biter."
     )
 
-
-async def _auto_end_giveaway(context: ContextTypes.DEFAULT_TYPE):
-    data    = context.job.data
-    gid     = data["gid"]
-    chat_id = data["chat_id"]
-    await _finish_giveaway(context, gid, chat_id)
 
 
 async def _finish_giveaway(context: ContextTypes.DEFAULT_TYPE, gid: int, chat_id: int):

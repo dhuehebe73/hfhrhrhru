@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from telegram.error import BadRequest
 
-from utils import require_admin, is_admin, dot_filter
+from utils import require_admin, is_admin, dot_filter, later
 from database import add_filter, remove_filter, get_filters, get_chat_settings, is_approved
 
 
@@ -58,10 +58,7 @@ async def _auto_delete(update: Update, context: ContextTypes.DEFAULT_TYPE, reaso
         notice = await context.bot.send_message(
             chat_id, f"Mesaj silindi ({reason})."
         )
-        context.job_queue.run_once(
-            lambda ctx: ctx.bot.delete_message(chat_id, notice.message_id),
-            5,
-        )
+        later(5, context.bot.delete_message(chat_id, notice.message_id))
     except Exception:
         pass
 

@@ -1,4 +1,4 @@
-import re, html
+import re, html, asyncio
 from datetime import timedelta
 from telegram import Update, ChatPermissions
 from telegram.ext import ContextTypes
@@ -125,6 +125,20 @@ LOCKED_PERMS = ChatPermissions(
 
 def mention(user_id: int, name: str) -> str:
     return f'<a href="tg://user?id={user_id}">{html.escape(str(name))}</a>'
+
+
+async def run_after(delay: float, coro):
+    """Run a coroutine after `delay` seconds (replaces job_queue)."""
+    await asyncio.sleep(delay)
+    try:
+        await coro
+    except Exception:
+        pass
+
+
+def later(delay: float, coro):
+    """Schedule a coroutine to run after delay seconds. Non-blocking."""
+    asyncio.create_task(run_after(delay, coro))
 
 
 def dot_filter(cmd: str):

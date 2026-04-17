@@ -2,7 +2,7 @@
 Welcome / goodbye / captcha / autoban
 Commands: setwelcome setgoodbye welcome autoban captcha
 """
-import html, random, time
+import html, random, time, asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -221,26 +221,22 @@ async def _send_captcha(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user, 
         )
         await set_captcha(user.id, chat_id, answer, int(time.time()) + timeout, msg.message_id)
 
-        context.job_queue.run_once(
-            _captcha_expire, timeout,
-            data={"user_id": user.id, "chat_id": chat_id},
-            name=f"cap_{user.id}_{chat_id}",
-        )
+        async def _expire():
+            await asyncio.sleep(timeout)
+            await _captcha_expire_impl(context, user.id, chat_id)
+        asyncio.create_task(_expire())
     except Exception:
         pass
 
 
-async def _captcha_expire(context: ContextTypes.DEFAULT_TYPE):
-    data    = context.job.data
-    user_id = data["user_id"]
-    chat_id = data["chat_id"]
-
+async def _captcha_expire_impl(context, user_id: int, chat_id: int):
     cap = await get_captcha(user_id, chat_id)
     if not cap:
         return
     await clear_captcha(user_id, chat_id)
     try:
-        await context.bot.kick_chat_member(chat_id, user_id)
+        await context.bot.ban_chat_member(chat_id, user_id)
+        await context.bot.unban_chat_member(chat_id, user_id)
         await context.bot.send_message(
             chat_id, f"Captcha cevaplanmadi. Kullanici atildi."
         )

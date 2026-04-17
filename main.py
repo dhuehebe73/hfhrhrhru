@@ -45,6 +45,7 @@ def main():
         Application.builder()
         .token(yarrak)
         .post_init(post_init)
+        .job_queue(None)   # disable job_queue (Python 3.13 compat)
         .build()
     )
 

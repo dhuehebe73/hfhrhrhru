@@ -10,7 +10,7 @@ from telegram.error import BadRequest
 
 from utils import (
     require_admin, require_bot_admin, is_admin,
-    mention, LOCKED_PERMS, FULL_PERMS, MUTE_PERMS, dot_filter,
+    mention, LOCKED_PERMS, FULL_PERMS, MUTE_PERMS, dot_filter, later,
 )
 from database import get_chat_settings, update_chat_setting, increment_stats
 
@@ -56,10 +56,7 @@ async def flood_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML",
             )
             # Auto-unmute after 5 min
-            context.job_queue.run_once(
-                lambda ctx: ctx.bot.restrict_chat_member(chat_id, user_id, FULL_PERMS),
-                300,
-            )
+            later(300, context.bot.restrict_chat_member(chat_id, user_id, FULL_PERMS))
         except BadRequest:
             pass
 
@@ -101,9 +98,7 @@ async def purge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
     n = await context.bot.send_message(update.effective_chat.id, f"{deleted} mesaj silindi.")
-    context.job_queue.run_once(
-        lambda ctx: ctx.bot.delete_message(update.effective_chat.id, n.message_id), 3
-    )
+    later(3, context.bot.delete_message(update.effective_chat.id, n.message_id))
 
 
 # ─── LOCK / UNLOCK ────────────────────────────────────────────────────────────
