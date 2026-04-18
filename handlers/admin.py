@@ -4,7 +4,8 @@ from telegram.ext import ContextTypes, MessageHandler
 from database import (get_warnings, add_warning, reset_warnings, remove_warning,
                       get_settings, approve, unapprove)
 from utils import (resolve_user, require_admin, require_bot_admin,
-                   MUTE_PERMS, FULL_PERMS, mention, dcmd, parse_time, fmt_duration, later)
+                   MUTE_PERMS, FULL_PERMS, mention, dcmd, parse_time, fmt_duration, later,
+                   get_args)
 from config import LOG_CHANNEL
 
 
@@ -123,7 +124,7 @@ async def mute_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid, name, reason = await resolve_user(update, ctx)
     if not uid:
         await update.effective_message.reply_text("Kullanıcı belirtin."); return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     duration = None
     if args:
         t = parse_time(args[-1])

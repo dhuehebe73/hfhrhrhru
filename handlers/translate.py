@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler
 from deep_translator import GoogleTranslator
-from utils import dcmd
+from utils import dcmd, get_args
 
 _LANG = {
     "tr":"turkish","en":"english","de":"german","fr":"french","es":"spanish",
@@ -30,7 +30,7 @@ def _resolve_lang(token: str) -> str | None:
 
 async def tr_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    args = ctx.args or []
+    args = get_args(update, ctx)
 
     target = "tr"
     text_to_translate = None

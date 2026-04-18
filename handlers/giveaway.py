@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, CallbackQueryHandler
 from database import (create_giveaway, get_giveaway, get_active_giveaway,
                       join_giveaway, get_participants, end_giveaway)
-from utils import require_admin, mention, dcmd, parse_time, fmt_duration
+from utils import require_admin, mention, dcmd, parse_time, fmt_duration, get_args
 
 
 def _giveaway_kb(gid: int, count: int) -> InlineKeyboardMarkup:
@@ -15,7 +15,7 @@ def _giveaway_kb(gid: int, count: int) -> InlineKeyboardMarkup:
 
 async def giveaway_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if len(args) < 2:
         await update.effective_message.reply_text(
             "Kullanım: /giveaway <süre> [kazanan_sayısı] <ödül>\n"

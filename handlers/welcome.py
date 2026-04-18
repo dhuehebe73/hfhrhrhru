@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, MessageHandler, ChatMemberHandler, filter
 from database import (get_welcome, set_welcome_field, get_settings, set_setting,
                       mark_left, has_left, clear_left,
                       set_captcha_pending, get_captcha_pending, clear_captcha_pending)
-from utils import require_admin, MUTE_PERMS, FULL_PERMS, mention, dcmd, later
+from utils import require_admin, MUTE_PERMS, FULL_PERMS, mention, dcmd, later, get_args
 
 
 def _fmt(template: str, user, chat) -> str:
@@ -142,7 +142,8 @@ async def _captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def setwelcome_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
     msg = update.effective_message
-    text = " ".join(ctx.args) if ctx.args else (
+    _a = get_args(update, ctx)
+    text = " ".join(_a) if _a else (
         msg.reply_to_message.text if msg.reply_to_message else "")
     if not text:
         await msg.reply_text("Kullanım: /setwelcome <metin>\nDeğişkenler: {name} {chat}"); return
@@ -152,7 +153,8 @@ async def setwelcome_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def setgoodbye_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
     msg = update.effective_message
-    text = " ".join(ctx.args) if ctx.args else (
+    _a = get_args(update, ctx)
+    text = " ".join(_a) if _a else (
         msg.reply_to_message.text if msg.reply_to_message else "")
     if not text:
         await msg.reply_text("Kullanım: /setgoodbye <metin>"); return
@@ -161,7 +163,7 @@ async def setgoodbye_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def welcome_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     cid = update.effective_chat.id
     w = await get_welcome(cid)
     if not args:
@@ -179,7 +181,7 @@ async def welcome_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def captcha_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     cid = update.effective_chat.id
     w = await get_welcome(cid)
     if not args:
@@ -194,7 +196,7 @@ async def captcha_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def autoban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     cid = update.effective_chat.id
     s = await get_settings(cid)
     if not args:

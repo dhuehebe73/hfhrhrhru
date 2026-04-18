@@ -1,12 +1,12 @@
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler
 from database import get_settings, set_setting
-from utils import require_admin, dcmd
+from utils import require_admin, dcmd, get_args
 
 
 async def warnlimit_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args or not args[0].isdigit():
         s = await get_settings(update.effective_chat.id)
         await update.effective_message.reply_text(
@@ -18,7 +18,7 @@ async def warnlimit_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def warnmode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     valid = ("ban", "kick", "mute")
     if not args or args[0].lower() not in valid:
         s = await get_settings(update.effective_chat.id)

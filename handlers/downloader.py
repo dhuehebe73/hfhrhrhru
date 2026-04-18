@@ -1,7 +1,7 @@
 import os, shutil, hashlib, tempfile, asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, CallbackQueryHandler
-from utils import dcmd
+from utils import dcmd, get_args
 
 # URL cache: md5_hash -> url
 _url_cache: dict[str, str] = {}
@@ -124,7 +124,7 @@ def _make_url(args: list[str]) -> tuple[str, str]:
 
 
 async def play_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text(
             "Kullanım: /play <şarkı adı veya URL>\nÖrnek: /play Tarkan Şımarık"); return
@@ -139,7 +139,7 @@ async def play_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML", reply_markup=kb)
 
 async def video_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text(
             "Kullanım: /video <video adı veya URL>"); return

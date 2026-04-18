@@ -3,7 +3,7 @@ from collections import defaultdict
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import get_settings, set_setting, is_approved
-from utils import require_admin, require_bot_admin, MUTE_PERMS, LOCKED_PERMS, FULL_PERMS, dcmd, mention
+from utils import require_admin, require_bot_admin, MUTE_PERMS, LOCKED_PERMS, FULL_PERMS, dcmd, mention, get_args
 
 # flood tracker: {chat_id: {user_id: [timestamps]}}
 _flood: dict[int, dict[int, list]] = defaultdict(lambda: defaultdict(list))
@@ -52,7 +52,7 @@ async def unlock_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def slowmode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
     if not await require_bot_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args or not args[0].isdigit():
         await update.effective_message.reply_text(
             "Kullanım: /slowmode <saniye> (0 = kapat)"); return
@@ -69,7 +69,7 @@ async def slowmode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def antiflood_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     cid = update.effective_chat.id
     s = await get_settings(cid)
     if not args:

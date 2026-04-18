@@ -2,14 +2,14 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import get_filters, add_filter, remove_filter, list_notes, get_settings, is_approved
-from utils import require_admin, dcmd
+from utils import require_admin, dcmd, get_args
 
 _URL_RE = re.compile(r"(https?://|t\.me/|@\w{5,})", re.I)
 
 
 async def filter_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         words = await get_filters(update.effective_chat.id)
         if not words:
@@ -22,7 +22,7 @@ async def filter_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def unfilter_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text("Hangi kelimeyi kaldırayım?"); return
     word = " ".join(args).lower()

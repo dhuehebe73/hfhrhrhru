@@ -2,7 +2,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import get_note, save_note, delete_note, list_notes
-from utils import require_admin, dcmd
+from utils import require_admin, dcmd, get_args
 
 _HASHTAG_RE = re.compile(r"#(\w+)")
 
@@ -10,7 +10,7 @@ _HASHTAG_RE = re.compile(r"#(\w+)")
 async def save_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
     msg = update.effective_message
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await msg.reply_text("Kullanım: /save <isim> [içerik]"); return
     name = args[0].lower()
@@ -35,7 +35,7 @@ async def save_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text(f"✅ Not «{name}» kaydedildi.")
 
 async def get_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text("Kullanım: /get <isim>"); return
     await _send_note(update, ctx, args[0].lower())
@@ -49,7 +49,7 @@ async def notes_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def clear_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text("Kullanım: /clear <isim>"); return
     name = args[0].lower()

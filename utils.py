@@ -37,7 +37,7 @@ def fmt_ago(ts: int) -> str:
 async def resolve_user(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Returns (user_id, first_name, reason) or (None, None, None)."""
     msg  = update.effective_message
-    args = ctx.args or []
+    args = get_args(update, ctx)
 
     if msg.reply_to_message and msg.reply_to_message.from_user:
         u = msg.reply_to_message.from_user
@@ -130,6 +130,18 @@ def mention(uid: int, name: str) -> str:
 def dcmd(cmd: str):
     from telegram.ext import filters
     return filters.Regex(rf"^[./!]{re.escape(cmd)}(\s|$)")
+
+
+def get_args(update, ctx) -> list[str]:
+    """Works for both /command (ctx.args set) and .command (parse manually)."""
+    if ctx.args:
+        return ctx.args
+    msg = update.effective_message
+    if msg:
+        text = (msg.text or msg.caption or "").strip()
+        parts = text.split()
+        return parts[1:] if len(parts) > 1 else []
+    return []
 
 
 # ── Async delay helper (replaces job_queue) ───────────────────────────────────

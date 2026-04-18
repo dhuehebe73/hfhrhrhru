@@ -2,7 +2,7 @@ import html, random, math, re, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Poll
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users)
-from utils import require_admin, mention, dcmd, fmt_ago
+from utils import require_admin, mention, dcmd, fmt_ago, get_args
 from config import OWNER_ID
 
 
@@ -12,7 +12,8 @@ async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         await update.effective_message.reply_text("❌ Sadece bot sahibi."); return
     msg = update.effective_message
-    text = " ".join(ctx.args) if ctx.args else (
+    _a = get_args(update, ctx)
+    text = " ".join(_a) if _a else (
         msg.reply_to_message.text if msg.reply_to_message else "")
     if not text:
         await msg.reply_text("Kullanım: /broadcast <metin>"); return
@@ -20,7 +21,7 @@ async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ok = fail = 0
     for ch in chats:
         try:
-            await ctx.bot.send_message(ch["chat_id"], text, parse_mode="HTML")
+            await ctx.bot.send_message(ch["chat_id"], text)
             ok += 1
         except Exception:
             fail += 1
@@ -31,7 +32,7 @@ async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def afk_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    reason = " ".join(ctx.args) if ctx.args else ""
+    reason = " ".join(get_args(update, ctx))
     await set_afk(user.id, reason)
     text = f"😴 {html.escape(user.first_name)} AFK moduna geçti."
     if reason: text += f"\nSebep: {reason}"
@@ -108,7 +109,7 @@ _RPS_WIN = [("tas","makas"),("kagit","tas"),("makas","kagit"),
             ("rock","scissors"),("paper","rock"),("scissors","paper")]
 
 async def rps_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args or []
+    args = get_args(update, ctx)
     choices = list(_RPS.keys())
     bot_choice = random.choice(["tas","kagit","makas"])
     if not args:
@@ -128,7 +129,7 @@ async def rps_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(f"Sen: {ue} | Ben: {be}\n{result}")
 
 async def calc_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args or []
+    args = get_args(update, ctx)
     if not args:
         await update.effective_message.reply_text("Kullanım: /calc <işlem>"); return
     expr = " ".join(args)
@@ -198,7 +199,8 @@ async def setrules_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await require_admin(update, ctx): return
     from database import set_rules
     msg = update.effective_message
-    text = " ".join(ctx.args) if ctx.args else (
+    _a = get_args(update, ctx)
+    text = " ".join(_a) if _a else (
         msg.reply_to_message.text if msg.reply_to_message else "")
     if not text:
         await msg.reply_text("Kullanım: /setrules <kurallar>"); return
