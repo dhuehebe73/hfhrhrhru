@@ -1,354 +1,364 @@
-"""
-Admin commands: ban unban kick mute unmute promote demote pin unpin del
-D-variants: dban dkick dmute dwarn  (sil + islem)
-S-variants: sban (sessiz ban)
-"""
-import html
-from datetime import datetime, timezone
-
+import time
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler
-from telegram.error import BadRequest
-
-from utils import (
-    resolve_user, require_admin, require_bot_admin,
-    mention, parse_time, fmt_time,
-    MUTE_PERMS, FULL_PERMS, dot_filter,
-    is_admin,
-)
+from telegram.ext import ContextTypes, MessageHandler
+from database import (get_warnings, add_warning, reset_warnings, remove_warning,
+                      get_settings, approve, unapprove)
+from utils import (resolve_user, require_admin, require_bot_admin,
+                   MUTE_PERMS, FULL_PERMS, mention, dcmd, parse_time, fmt_duration, later)
 from config import LOG_CHANNEL
 
 
-async def _log(context, text: str):
+async def _log(ctx, text):
     if LOG_CHANNEL:
-        try:
-            await context.bot.send_message(LOG_CHANNEL, text, parse_mode="HTML")
-        except Exception:
-            pass
+        try: await ctx.bot.send_message(LOG_CHANNEL, text, parse_mode="HTML")
+        except Exception: pass
 
 
-# ─── BAN ─────────────────────────────────────────────────────────────────────
+# ── Ban ────────────────────────────────────────────────────────────────────────
 
-async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, reason = await resolve_user(update, context)
+async def ban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
     if not uid:
-        return await update.effective_message.reply_text("Kimi banlayayim? Reply at veya @user/ID yaz.")
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
     try:
         await update.effective_chat.ban_member(uid)
-        r = f" | Sebep: {html.escape(reason)}" if reason else ""
-        await update.effective_message.reply_text(
-            f"Banlandi: {mention(uid, name)}{r}", parse_mode="HTML"
-        )
-        await _log(context,
-            f"🔨 BAN | {update.effective_chat.title}\n"
-            f"Kullanici: {mention(uid, name)} ({uid})\n"
-            f"Admin: {mention(update.effective_user.id, update.effective_user.first_name)}\n"
-            f"Sebep: {reason or '-'}"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Banlanamadi: {e}")
+        text = f"🚫 {mention(uid, name)} banlandı."
+        if reason: text += f"\n📝 {reason}"
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+        await _log(ctx, f"BAN | {mention(uid,name)} | {update.effective_chat.title}\n{reason}")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-async def dban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mesaji sil + Banla"""
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    if msg.reply_to_message:
-        try: await msg.reply_to_message.delete()
+async def dban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
         except Exception: pass
-    await ban_cmd(update, context)
-    try: await msg.delete()
+    try: await update.effective_message.delete()
     except Exception: pass
+    try:
+        await update.effective_chat.ban_member(uid)
+        msg = await ctx.bot.send_message(update.effective_chat.id,
+            f"🚫 {mention(uid,name)} banlandı.", parse_mode="HTML")
+        later(5, msg.delete())
+    except Exception as e:
+        await ctx.bot.send_message(update.effective_chat.id, f"Hata: {e}")
 
-
-async def sban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sessiz ban (mesaj yok)"""
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, reason = await resolve_user(update, context)
+async def sban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
     if not uid: return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
+        except Exception: pass
+    try: await update.effective_message.delete()
+    except Exception: pass
+    try: await update.effective_chat.ban_member(uid)
+    except Exception: pass
+
+async def unban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    try:
+        await update.effective_chat.unban_member(uid, only_if_banned=True)
+        await update.effective_message.reply_text(
+            f"✅ {mention(uid,name)} unban edildi.", parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
+
+
+# ── Kick ───────────────────────────────────────────────────────────────────────
+
+async def kick_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
     try:
         await update.effective_chat.ban_member(uid)
-        await msg.delete()
-    except Exception: pass
-
-
-# ─── UNBAN ────────────────────────────────────────────────────────────────────
-
-async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
-    if not uid:
-        return await update.effective_message.reply_text("Kimin banini kaldirayayim?")
-    try:
         await update.effective_chat.unban_member(uid)
-        await update.effective_message.reply_text(
-            f"Ban kaldirildi: {mention(uid, name)}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Kaldirilamadi: {e}")
+        text = f"👢 {mention(uid,name)} atıldı."
+        if reason: text += f"\n📝 {reason}"
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-# ─── KICK ─────────────────────────────────────────────────────────────────────
-
-async def kick_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, reason = await resolve_user(update, context)
+async def dkick_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
     if not uid:
-        return await update.effective_message.reply_text("Kimi attayayim?")
-    chat = update.effective_chat
-    try:
-        await chat.ban_member(uid)
-        await chat.unban_member(uid)
-        r = f" | Sebep: {html.escape(reason)}" if reason else ""
-        await update.effective_message.reply_text(
-            f"Atildi: {mention(uid, name)}{r}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Atilamadi: {e}")
-
-
-async def dkick_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mesaji sil + At"""
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    if msg.reply_to_message:
-        try: await msg.reply_to_message.delete()
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
         except Exception: pass
-    await kick_cmd(update, context)
-    try: await msg.delete()
+    try: await update.effective_message.delete()
     except Exception: pass
+    try:
+        await update.effective_chat.ban_member(uid)
+        await update.effective_chat.unban_member(uid)
+        msg = await ctx.bot.send_message(update.effective_chat.id,
+            f"👢 {mention(uid,name)} atıldı.", parse_mode="HTML")
+        later(5, msg.delete())
+    except Exception as e:
+        await ctx.bot.send_message(update.effective_chat.id, f"Hata: {e}")
 
 
-# ─── MUTE ─────────────────────────────────────────────────────────────────────
+# ── Mute ───────────────────────────────────────────────────────────────────────
 
-async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, reason = await resolve_user(update, context)
+async def mute_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
     if not uid:
-        return await update.effective_message.reply_text(
-            "Kullanim: .mute @user [sure] [sebep]\nOrnek: .mute @user 1h spam")
-
-    args = list(context.args or [])
-    if not update.effective_message.reply_to_message and args:
-        args = args[1:]
-
-    until_date = None
-    dur_text = ""
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    args = ctx.args or []
+    duration = None
     if args:
-        secs = parse_time(args[0])
-        if secs:
-            until_date = datetime.now(tz=timezone.utc).timestamp() + secs
-            dur_text = f" ({fmt_time(secs)})"
-            reason = " ".join(args[1:])
-
+        t = parse_time(args[-1])
+        if t:
+            duration = t
+            reason = " ".join(args[:-1]) if len(args) > 1 else ""
+    until = int(time.time()) + duration if duration else None
     try:
-        await update.effective_chat.restrict_member(
-            uid, MUTE_PERMS,
-            until_date=datetime.fromtimestamp(until_date, tz=timezone.utc) if until_date else None,
-        )
-        r = f" | Sebep: {html.escape(reason)}" if reason else ""
-        await update.effective_message.reply_text(
-            f"Susturuldu{dur_text}: {mention(uid, name)}{r}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Susturulamadi: {e}")
+        await update.effective_chat.restrict_member(uid, MUTE_PERMS, until_date=until)
+        text = f"🔇 {mention(uid,name)} susturuldu."
+        if duration: text += f" ({fmt_duration(duration)})"
+        if reason: text += f"\n📝 {reason}"
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-async def dmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mesaji sil + Sustur"""
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    if msg.reply_to_message:
-        try: await msg.reply_to_message.delete()
-        except Exception: pass
-    await mute_cmd(update, context)
-    try: await msg.delete()
-    except Exception: pass
-
-
-# ─── UNMUTE ───────────────────────────────────────────────────────────────────
-
-async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
+async def dmute_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
     if not uid:
-        return await update.effective_message.reply_text("Kimin susturmasini kaldirayayim?")
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
+        except Exception: pass
+    try: await update.effective_message.delete()
+    except Exception: pass
+    try:
+        await update.effective_chat.restrict_member(uid, MUTE_PERMS)
+        msg = await ctx.bot.send_message(update.effective_chat.id,
+            f"🔇 {mention(uid,name)} susturuldu.", parse_mode="HTML")
+        later(5, msg.delete())
+    except Exception as e:
+        await ctx.bot.send_message(update.effective_chat.id, f"Hata: {e}")
+
+async def unmute_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
     try:
         await update.effective_chat.restrict_member(uid, FULL_PERMS)
         await update.effective_message.reply_text(
-            f"Sus kaldirildi: {mention(uid, name)}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Kaldirilamadi: {e}")
+            f"🔊 {mention(uid,name)} susturması kaldırıldı.", parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
 
-# ─── DWARN ────────────────────────────────────────────────────────────────────
+# ── Warn ───────────────────────────────────────────────────────────────────────
 
-async def dwarn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mesaji sil + Uyar"""
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    if msg.reply_to_message:
-        try: await msg.reply_to_message.delete()
+async def _do_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, action: str) -> str:
+    chat = update.effective_chat
+    if action == "ban":
+        await chat.ban_member(uid); return "banlandı 🚫"
+    if action == "kick":
+        await chat.ban_member(uid); await chat.unban_member(uid); return "atıldı 👢"
+    if action == "mute":
+        await chat.restrict_member(uid, MUTE_PERMS); return "susturuldu 🔇"
+    return "uyarılandı ⚠️"
+
+async def warn_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    cid = update.effective_chat.id
+    s = await get_settings(cid)
+    limit, action = s.get("warn_limit", 3), s.get("warn_action", "ban")
+    count = await add_warning(uid, cid, reason)
+    text = f"⚠️ {mention(uid,name)} uyarıldı. ({count}/{limit})"
+    if reason: text += f"\n📝 {reason}"
+    if count >= limit:
+        result = await _do_action(update, ctx, uid, action)
+        text += f"\n\n🔴 Limit aşıldı! Kullanıcı {result}"
+        await reset_warnings(uid, cid)
+    await update.effective_message.reply_text(text, parse_mode="HTML")
+
+async def dwarn_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, reason = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
         except Exception: pass
-    # Import here to avoid circular
-    from handlers.warnings import warn_cmd
-    await warn_cmd(update, context)
-    try: await msg.delete()
+    try: await update.effective_message.delete()
+    except Exception: pass
+    cid = update.effective_chat.id
+    s = await get_settings(cid)
+    limit, action = s.get("warn_limit", 3), s.get("warn_action", "ban")
+    count = await add_warning(uid, cid, reason)
+    text = f"⚠️ {mention(uid,name)} uyarıldı. ({count}/{limit})"
+    if count >= limit:
+        result = await _do_action(update, ctx, uid, action)
+        text += f"\n🔴 {result}"
+        await reset_warnings(uid, cid)
+    msg = await ctx.bot.send_message(cid, text, parse_mode="HTML")
+    later(8, msg.delete())
+
+async def unwarn_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    new = await remove_warning(uid, update.effective_chat.id)
+    await update.effective_message.reply_text(
+        f"✅ {mention(uid,name)} bir uyarısı silindi. Toplam: {new}", parse_mode="HTML")
+
+async def resetwarns_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    await reset_warnings(uid, update.effective_chat.id)
+    await update.effective_message.reply_text(
+        f"✅ {mention(uid,name)} uyarıları sıfırlandı.", parse_mode="HTML")
+
+async def warns_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        u = update.effective_user; uid, name = u.id, u.first_name
+    count, reasons = await get_warnings(uid, update.effective_chat.id)
+    if not count:
+        await update.effective_message.reply_text(
+            f"ℹ️ {mention(uid,name)} hiç uyarısı yok.", parse_mode="HTML"); return
+    lines = "\n".join(f"  {i+1}. {r or '(sebep yok)'}" for i, r in enumerate(reasons))
+    await update.effective_message.reply_text(
+        f"⚠️ {mention(uid,name)} — {count} uyarı:\n{lines}", parse_mode="HTML")
+
+
+# ── Promote / Demote ───────────────────────────────────────────────────────────
+
+async def promote_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    try:
+        await update.effective_chat.promote_member(uid,
+            can_delete_messages=True, can_restrict_members=True,
+            can_pin_messages=True, can_invite_users=True, can_manage_chat=True)
+        await update.effective_message.reply_text(
+            f"⬆️ {mention(uid,name)} admin yapıldı.", parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
+
+async def demote_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    try:
+        await update.effective_chat.promote_member(uid,
+            can_delete_messages=False, can_restrict_members=False,
+            can_pin_messages=False, can_invite_users=False, can_manage_chat=False)
+        await update.effective_message.reply_text(
+            f"⬇️ {mention(uid,name)} admin'den indirildi.", parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
+
+
+# ── Approve ────────────────────────────────────────────────────────────────────
+
+async def approve_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    await approve(uid, update.effective_chat.id)
+    await update.effective_message.reply_text(
+        f"✅ {mention(uid,name)} onaylandı (filtrelerden muaf).", parse_mode="HTML")
+
+async def unapprove_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    uid, name, _ = await resolve_user(update, ctx)
+    if not uid:
+        await update.effective_message.reply_text("Kullanıcı belirtin."); return
+    await unapprove(uid, update.effective_chat.id)
+    await update.effective_message.reply_text(
+        f"❎ {mention(uid,name)} onayı kaldırıldı.", parse_mode="HTML")
+
+
+# ── Pin ────────────────────────────────────────────────────────────────────────
+
+async def pin_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    if not update.effective_message.reply_to_message:
+        await update.effective_message.reply_text("Sabitlenecek mesajı yanıtlayın."); return
+    try:
+        await update.effective_message.reply_to_message.pin()
+        await update.effective_message.reply_text("📌 Sabitlendi.")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
+
+async def unpin_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    try:
+        if update.effective_message.reply_to_message:
+            await update.effective_message.reply_to_message.unpin()
+        else:
+            await update.effective_chat.unpin_all_messages()
+        await update.effective_message.reply_text("📌 Sabitleme kaldırıldı.")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
+
+
+# ── Delete message ─────────────────────────────────────────────────────────────
+
+async def del_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if update.effective_message.reply_to_message:
+        try: await update.effective_message.reply_to_message.delete()
+        except Exception: pass
+    try: await update.effective_message.delete()
     except Exception: pass
 
 
-# ─── PROMOTE / DEMOTE ─────────────────────────────────────────────────────────
+# ── Register ───────────────────────────────────────────────────────────────────
 
-async def promote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
-    if not uid:
-        return await update.effective_message.reply_text("Kimi admin yapayim?")
-    try:
-        await update.effective_chat.promote_member(
-            uid,
-            can_delete_messages=True, can_restrict_members=True,
-            can_pin_messages=True, can_invite_users=True,
-            can_manage_chat=True,
-        )
-        await update.effective_message.reply_text(
-            f"Admin yapildi: {mention(uid, name)}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Admin yapilamadi: {e}")
-
-
-async def demote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
-    if not uid:
-        return await update.effective_message.reply_text("Kimin adminligini alayim?")
-    try:
-        await update.effective_chat.promote_member(
-            uid,
-            can_delete_messages=False, can_restrict_members=False,
-            can_pin_messages=False, can_invite_users=False,
-            can_manage_chat=False,
-        )
-        await update.effective_message.reply_text(
-            f"Adminlik alindi: {mention(uid, name)}", parse_mode="HTML"
-        )
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Kaldirilamadi: {e}")
-
-
-# ─── PIN / UNPIN ─────────────────────────────────────────────────────────────
-
-async def pin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    if not msg.reply_to_message:
-        return await msg.reply_text("Hangi mesaji sabitleyeyim? Birine reply at.")
-    try:
-        await msg.reply_to_message.pin()
-        await msg.reply_text("Mesaj sabitlendi.")
-    except BadRequest as e:
-        await msg.reply_text(f"Sabitlenemedi: {e}")
-
-
-async def unpin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    try:
-        if msg.reply_to_message:
-            await context.bot.unpin_chat_message(
-                update.effective_chat.id, msg.reply_to_message.message_id
-            )
-        else:
-            await context.bot.unpin_chat_message(update.effective_chat.id)
-        await msg.reply_text("Sabit mesaj kaldirildi.")
-    except BadRequest as e:
-        await msg.reply_text(f"Kaldirilamadi: {e}")
-
-
-async def unpinall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    try:
-        await context.bot.unpin_all_chat_messages(update.effective_chat.id)
-        await update.effective_message.reply_text("Tum sabit mesajlar kaldirildi.")
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Kaldirilamadi: {e}")
-
-
-# ─── DEL ──────────────────────────────────────────────────────────────────────
-
-async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not msg.reply_to_message:
-        return await msg.reply_text("Hangi mesaji sileyim? Reply at.")
-    try:
-        await msg.reply_to_message.delete()
-        await msg.delete()
-    except BadRequest:
-        pass
-
-
-# ─── APPROVE / UNAPPROVE ─────────────────────────────────────────────────────
-
-async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
-    if not uid:
-        return await update.effective_message.reply_text("Kimi onayla?")
-    from database import approve_user
-    await approve_user(uid, update.effective_chat.id)
-    await update.effective_message.reply_text(
-        f"{mention(uid, name)} onaylandi. Filtreleri atlayabilir.", parse_mode="HTML"
-    )
-
-
-async def unapprove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    uid, name, _ = await resolve_user(update, context)
-    if not uid:
-        return await update.effective_message.reply_text("Kim?")
-    from database import unapprove_user
-    await unapprove_user(uid, update.effective_chat.id)
-    await update.effective_message.reply_text(
-        f"{mention(uid, name)} onay kaldirildi.", parse_mode="HTML"
-    )
-
-
-# ─── REGISTER ─────────────────────────────────────────────────────────────────
-
-def register_admin_handlers(app):
-    cmds = [
-        ("ban", ban_cmd), ("dban", dban_cmd), ("sban", sban_cmd),
-        ("unban", unban_cmd),
+def register(app):
+    f = dcmd
+    for cmd, handler in [
+        ("ban", ban_cmd), ("dban", dban_cmd), ("sban", sban_cmd), ("unban", unban_cmd),
         ("kick", kick_cmd), ("dkick", dkick_cmd),
-        ("mute", mute_cmd), ("dmute", dmute_cmd),
-        ("unmute", unmute_cmd),
-        ("dwarn", dwarn_cmd),
+        ("mute", mute_cmd), ("dmute", dmute_cmd), ("unmute", unmute_cmd),
+        ("warn", warn_cmd), ("dwarn", dwarn_cmd), ("unwarn", unwarn_cmd),
+        ("resetwarns", resetwarns_cmd), ("warns", warns_cmd),
         ("promote", promote_cmd), ("demote", demote_cmd),
-        ("pin", pin_cmd), ("unpin", unpin_cmd), ("unpinall", unpinall_cmd),
-        ("del", del_cmd),
         ("approve", approve_cmd), ("unapprove", unapprove_cmd),
-    ]
-    from telegram.ext import filters
-    for cmd, handler in cmds:
-        app.add_handler(CommandHandler(cmd, handler))
-        app.add_handler(MessageHandler(filters.TEXT & dot_filter(cmd), handler))
+        ("pin", pin_cmd), ("unpin", unpin_cmd),
+        ("del", del_cmd),
+    ]:
+        app.add_handler(MessageHandler(f(cmd), handler), group=10)

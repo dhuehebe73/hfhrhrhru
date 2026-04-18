@@ -1,205 +1,138 @@
-"""
-Moderation: purge lock unlock slowmode antiflood
-"""
 import time
 from collections import defaultdict
-
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-from telegram.error import BadRequest
+from telegram.ext import ContextTypes, MessageHandler, filters
+from database import get_settings, set_setting, is_approved
+from utils import require_admin, require_bot_admin, MUTE_PERMS, LOCKED_PERMS, FULL_PERMS, dcmd, mention
 
-from utils import (
-    require_admin, require_bot_admin, is_admin,
-    mention, LOCKED_PERMS, FULL_PERMS, MUTE_PERMS, dot_filter, later,
-)
-from database import get_chat_settings, update_chat_setting, increment_stats
+# flood tracker: {chat_id: {user_id: [timestamps]}}
+_flood: dict[int, dict[int, list]] = defaultdict(lambda: defaultdict(list))
 
 
-# ─── Anti-flood (in-memory) ───────────────────────────────────────────────────
-
-_flood: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
-
-
-async def flood_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def purge_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
     msg = update.effective_message
-    if not msg or not update.effective_user:
-        return
-
-    if await is_admin(update, context):
-        return
-
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    settings = await get_chat_settings(chat_id)
-
-    # Track stats
-    await increment_stats(user_id, chat_id)
-
-    if not settings["anti_flood"]:
-        return
-
-    limit  = settings["flood_limit"]
-    now    = time.time()
-    window = 5.0
-
-    msgs = _flood[chat_id][user_id]
-    msgs[:] = [t for t in msgs if now - t < window]
-    msgs.append(now)
-
-    if len(msgs) > limit:
-        msgs.clear()
-        user = update.effective_user
-        try:
-            await update.effective_chat.restrict_member(user_id, MUTE_PERMS)
-            await msg.reply_text(
-                f"{mention(user_id, user.first_name)} flood yaptigindan 5 dakika susturuldu!",
-                parse_mode="HTML",
-            )
-            # Auto-unmute after 5 min
-            later(300, context.bot.restrict_chat_member(chat_id, user_id, FULL_PERMS))
-        except BadRequest:
-            pass
-
-
-# ─── PURGE ────────────────────────────────────────────────────────────────────
-
-async def purge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-
-    ids = []
-    if msg.reply_to_message:
-        start = msg.reply_to_message.message_id
-        end   = msg.message_id
-        ids   = list(range(start, end + 1))
-    elif context.args and context.args[0].isdigit():
-        n   = min(int(context.args[0]), 200)
-        ids = list(range(msg.message_id - n, msg.message_id + 1))
-    else:
-        return await msg.reply_text(
-            "Kullanim:\n"
-            "  .purge 10  — son 10 mesaji sil\n"
-            "  Reply at + .purge — o mesajdan itibaren sil"
-        )
-
+    if not msg.reply_to_message:
+        await msg.reply_text("Silmeye başlanacak mesajı yanıtlayın."); return
+    from_id = msg.reply_to_message.message_id
+    to_id   = msg.message_id
     deleted = 0
-    for i in range(0, len(ids), 100):
-        chunk = ids[i:i + 100]
+    for mid in range(from_id, to_id + 1):
         try:
-            await context.bot.delete_messages(update.effective_chat.id, chunk)
-            deleted += len(chunk)
-        except BadRequest:
-            for mid in chunk:
-                try:
-                    await context.bot.delete_message(update.effective_chat.id, mid)
-                    deleted += 1
-                except Exception:
-                    pass
-
-    n = await context.bot.send_message(update.effective_chat.id, f"{deleted} mesaj silindi.")
-    later(3, context.bot.delete_message(update.effective_chat.id, n.message_id))
+            await ctx.bot.delete_message(update.effective_chat.id, mid)
+            deleted += 1
+        except Exception: pass
+    m = await ctx.bot.send_message(update.effective_chat.id,
+        f"🗑 {deleted} mesaj silindi.")
+    from utils import later
+    later(5, m.delete())
 
 
-# ─── LOCK / UNLOCK ────────────────────────────────────────────────────────────
-
-async def lock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
+async def lock_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
     try:
         await update.effective_chat.set_permissions(LOCKED_PERMS)
-        await update_chat_setting(update.effective_chat.id, "locked", 1)
-        await update.effective_message.reply_text("Grup kilitlendi. Sadece adminler yazabilir.")
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Kilitlenemedi: {e}")
+        await set_setting(update.effective_chat.id, "locked", 1)
+        await update.effective_message.reply_text("🔒 Grup kilitlendi.")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-async def unlock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
+async def unlock_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
     try:
         await update.effective_chat.set_permissions(FULL_PERMS)
-        await update_chat_setting(update.effective_chat.id, "locked", 0)
-        await update.effective_message.reply_text("Grup acildi.")
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Acilamadi: {e}")
+        await set_setting(update.effective_chat.id, "locked", 0)
+        await update.effective_message.reply_text("🔓 Grup kilidi açıldı.")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-# ─── SLOWMODE ────────────────────────────────────────────────────────────────
-
-async def slowmode_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    if not await require_bot_admin(update, context): return
-    args = context.args
-
-    if not args:
-        settings = await get_chat_settings(update.effective_chat.id)
-        current = settings["slowmode"]
-        return await update.effective_message.reply_text(
-            f"Yavas mod: {current} saniye\n"
-            ".slowmode 0 — kapat\n"
-            ".slowmode 30 — 30 saniye"
-        )
-
+async def slowmode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    if not await require_bot_admin(update, ctx): return
+    args = ctx.args or []
+    if not args or not args[0].isdigit():
+        await update.effective_message.reply_text(
+            "Kullanım: /slowmode <saniye> (0 = kapat)"); return
+    sec = int(args[0])
     try:
-        secs = int(args[0])
-    except ValueError:
-        return await update.effective_message.reply_text("Saniye olarak rakam gir.")
-
-    secs = max(0, min(secs, 3600))
-    try:
-        await context.bot.set_chat_slow_mode_delay(update.effective_chat.id, secs)
-        await update_chat_setting(update.effective_chat.id, "slowmode", secs)
-        if secs == 0:
-            await update.effective_message.reply_text("Yavas mod kapatildi.")
+        await update.effective_chat.set_slow_mode_delay(sec)
+        await set_setting(update.effective_chat.id, "slowmode", sec)
+        if sec:
+            await update.effective_message.reply_text(f"🐢 Yavaş mod: {sec}sn")
         else:
-            await update.effective_message.reply_text(f"Yavas mod: {secs} saniye")
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"Ayarlanamadi: {e}")
+            await update.effective_message.reply_text("✅ Yavaş mod kapatıldı.")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Hata: {e}")
 
-
-# ─── ANTIFLOOD CONFIG ─────────────────────────────────────────────────────────
-
-async def antiflood_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await require_admin(update, context): return
-    args = context.args
-    chat_id = update.effective_chat.id
-    settings = await get_chat_settings(chat_id)
-
+async def antiflood_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    args = ctx.args or []
+    cid = update.effective_chat.id
+    s = await get_settings(cid)
     if not args:
-        status = "ACIK" if settings["anti_flood"] else "KAPALI"
-        return await update.effective_message.reply_text(
-            f"Anti-flood: {status}\n"
-            f"Limit: {settings['flood_limit']} mesaj/5sn\n\n"
-            ".antiflood on/off\n"
-            ".antiflood 5  (limit)"
-        )
-
-    arg = args[0].lower()
-    if arg in ("on", "ac", "1"):
-        await update_chat_setting(chat_id, "anti_flood", 1)
-        await update.effective_message.reply_text("Anti-flood ACIK!")
-    elif arg in ("off", "kapat", "0"):
-        await update_chat_setting(chat_id, "anti_flood", 0)
-        await update.effective_message.reply_text("Anti-flood KAPALI.")
-    elif arg.isdigit():
-        limit = max(2, min(int(arg), 50))
-        await update_chat_setting(chat_id, "flood_limit", limit)
-        await update.effective_message.reply_text(f"Flood limiti: {limit} mesaj/5sn")
-    else:
-        await update.effective_message.reply_text("Gecersiz arguman.")
+        state = "açık" if s.get("anti_flood") else "kapalı"
+        limit = s.get("flood_limit", 5)
+        await update.effective_message.reply_text(
+            f"ℹ️ Anti-flood: {state} (limit: {limit})\n"
+            "Değiştir: /antiflood on|off [limit]"); return
+    if args[0].lower() in ("on","ac","aç","1"):
+        await set_setting(cid, "anti_flood", 1)
+        if len(args) > 1 and args[1].isdigit():
+            await set_setting(cid, "flood_limit", int(args[1]))
+        await update.effective_message.reply_text("✅ Anti-flood açıldı.")
+    elif args[0].lower() in ("off","kapat","0"):
+        await set_setting(cid, "anti_flood", 0)
+        await update.effective_message.reply_text("✅ Anti-flood kapatıldı.")
+    elif args[0].isdigit():
+        await set_setting(cid, "flood_limit", int(args[0]))
+        await update.effective_message.reply_text(f"✅ Flood limiti: {args[0]}")
 
 
-def register_moderation_handlers(app):
-    for cmd, handler in [
+async def _flood_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if not msg or not msg.from_user: return
+    chat = update.effective_chat
+    if not chat or chat.type == "private": return
+
+    uid = msg.from_user.id
+    if await is_approved(uid, chat.id): return
+
+    from utils import is_admin
+    if await is_admin(update, ctx): return
+
+    s = await get_settings(chat.id)
+    if not s.get("anti_flood"): return
+
+    limit = s.get("flood_limit", 5)
+    now = time.time()
+    window = 5.0
+
+    msgs = _flood[chat.id][uid]
+    msgs.append(now)
+    _flood[chat.id][uid] = [t for t in msgs if now - t < window]
+
+    if len(_flood[chat.id][uid]) >= limit:
+        _flood[chat.id][uid] = []
+        try:
+            await chat.restrict_member(uid, MUTE_PERMS,
+                until_date=int(now) + 60)
+            m = await msg.reply_text(
+                f"⚠️ {mention(uid, msg.from_user.first_name)} flood yaptı, 1 dakika susturuldu.",
+                parse_mode="HTML")
+            from utils import later
+            later(10, m.delete())
+        except Exception: pass
+
+
+def register(app):
+    app.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & filters.ALL & ~filters.COMMAND,
+        _flood_check), group=15)
+    for cmd, h in [
         ("purge", purge_cmd), ("lock", lock_cmd), ("unlock", unlock_cmd),
         ("slowmode", slowmode_cmd), ("antiflood", antiflood_cmd),
     ]:
-        app.add_handler(CommandHandler(cmd, handler))
-        app.add_handler(MessageHandler(filters.TEXT & dot_filter(cmd), handler))
-
-    # Flood + stat tracking on every message
-    app.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND, flood_check),
-        group=5,
-    )
+        app.add_handler(MessageHandler(dcmd(cmd), h), group=10)

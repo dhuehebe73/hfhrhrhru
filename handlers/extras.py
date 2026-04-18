@@ -1,324 +1,232 @@
-"""
-Extras: broadcast, fun commands, AFK, weather, calculator, poll, dice, report
-"""
 import html, random, math, re, time
-from datetime import datetime
-
-from telegram import Update, Poll, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-
-from utils import (
-    require_admin, is_owner, mention, dot_filter,
-    resolve_user, is_admin,
-)
-from database import (
-    set_afk, get_afk, clear_afk,
-    get_all_chats, register_chat,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Poll
+from telegram.ext import ContextTypes, MessageHandler, filters
+from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users)
+from utils import require_admin, mention, dcmd, fmt_ago
 from config import OWNER_ID
 
 
-# ═══ BROADCAST ═══════════════════════════════════════════════════════════════
+# ── Broadcast ─────────────────────────────────────────────────────────────────
 
-async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.effective_message.reply_text("❌ Sadece bot sahibi."); return
     msg = update.effective_message
-    if not await is_owner(update):
-        return await msg.reply_text("Sadece bot sahibi kullanabilir.")
-
-    text = ""
-    if msg.reply_to_message:
-        text = msg.reply_to_message.text or msg.reply_to_message.caption or ""
-    elif context.args:
-        text = " ".join(context.args)
-
+    text = " ".join(ctx.args) if ctx.args else (
+        msg.reply_to_message.text if msg.reply_to_message else "")
     if not text:
-        return await msg.reply_text(
-            "Kullanim:\n"
-            "  .broadcast <metin>\n"
-            "  Bir mesaja reply at + .broadcast"
-        )
-
+        await msg.reply_text("Kullanım: /broadcast <metin>"); return
     chats = await get_all_chats()
-    if not chats:
-        return await msg.reply_text("Hicbir grup/kanal kayitli degil.")
-
-    sent = 0
-    failed = 0
-    status = await msg.reply_text(f"Yayinlaniyor... ({len(chats)} grup/kanal)")
-
-    for chat in chats:
+    ok = fail = 0
+    for ch in chats:
         try:
-            await context.bot.send_message(
-                chat["chat_id"], text, parse_mode="HTML"
-            )
-            sent += 1
+            await ctx.bot.send_message(ch["chat_id"], text, parse_mode="HTML")
+            ok += 1
         except Exception:
-            failed += 1
-
-    await status.edit_text(
-        f"Yayin tamamlandi!\n✓ Gonderildi: {sent}\n✗ Basarisiz: {failed}"
-    )
+            fail += 1
+    await msg.reply_text(f"📣 Gönderildi: {ok} ✅ | Başarısız: {fail} ❌")
 
 
-async def pbroadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pin message in all chats."""
-    msg = update.effective_message
-    if not await is_owner(update):
-        return await msg.reply_text("Sadece bot sahibi kullanabilir.")
+# ── AFK ───────────────────────────────────────────────────────────────────────
 
-    text = " ".join(context.args) if context.args else ""
-    if not text:
-        return await msg.reply_text(".pbroadcast <metin>")
-
-    chats = await get_all_chats()
-    sent = 0
-    for chat in chats:
-        try:
-            sent_msg = await context.bot.send_message(
-                chat["chat_id"], text, parse_mode="HTML"
-            )
-            await context.bot.pin_chat_message(chat["chat_id"], sent_msg.message_id)
-            sent += 1
-        except Exception:
-            pass
-
-    await msg.reply_text(f"Sabitlendi: {sent} grup/kanal")
-
-
-# ═══ AFK ══════════════════════════════════════════════════════════════════════
-
-async def afk_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user   = update.effective_user
-    reason = " ".join(context.args) if context.args else ""
+async def afk_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    reason = " ".join(ctx.args) if ctx.args else ""
     await set_afk(user.id, reason)
-    r = f": {html.escape(reason)}" if reason else ""
-    await update.effective_message.reply_text(
-        f"{mention(user.id, user.first_name)} AFK moduna gecti{r}.",
-        parse_mode="HTML",
-    )
+    text = f"😴 {html.escape(user.first_name)} AFK moduna geçti."
+    if reason: text += f"\nSebep: {reason}"
+    await update.effective_message.reply_text(text, parse_mode="HTML")
 
-
-async def back_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    afk  = await get_afk(user.id)
-    if not afk:
-        return
-    from utils import fmt_ago
-    ago = fmt_ago(afk["since"])
-    await clear_afk(user.id)
-    await update.effective_message.reply_text(
-        f"{mention(user.id, user.first_name)} geri dondu! ({ago} yoktu)",
-        parse_mode="HTML",
-    )
-
-
-async def check_afk_mention(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _check_afk(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    if not msg or not msg.text:
-        return
+    if not msg or not msg.from_user: return
 
-    user = update.effective_user
-    if not user:
-        return
-
-    # Auto-back when AFK user sends a message
-    afk = await get_afk(user.id)
+    uid = msg.from_user.id
+    afk = await get_afk(uid)
     if afk:
-        from utils import fmt_ago
-        ago = fmt_ago(afk["since"])
-        await clear_afk(user.id)
-        try:
-            await msg.reply_text(
-                f"{mention(user.id, user.first_name)} AFK modundan cikti! ({ago} yoktu)",
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
+        await clear_afk(uid)
+        elapsed = fmt_ago(afk["since"])
+        m = await msg.reply_text(
+            f"👋 {html.escape(msg.from_user.first_name)} AFK'dan döndü! ({elapsed} önce gitti)",
+            parse_mode="HTML")
+        from utils import later
+        later(10, m.delete())
+        return
 
-    # Check if replied user is AFK
     if msg.reply_to_message and msg.reply_to_message.from_user:
         target = msg.reply_to_message.from_user
-        t_afk  = await get_afk(target.id)
-        if t_afk:
-            from utils import fmt_ago
-            ago    = fmt_ago(t_afk["since"])
-            reason = t_afk["reason"]
-            r_text = f" ({html.escape(reason)})" if reason else ""
-            try:
-                await msg.reply_text(
-                    f"{mention(target.id, target.first_name)} simdi AFK{r_text}. ({ago} once)",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
+        ta = await get_afk(target.id)
+        if ta:
+            elapsed = fmt_ago(ta["since"])
+            text = f"💤 {html.escape(target.first_name)} şu an AFK ({elapsed} önce)"
+            if ta["reason"]: text += f"\nSebep: {ta['reason']}"
+            m = await msg.reply_text(text, parse_mode="HTML")
+            from utils import later
+            later(10, m.delete())
 
 
-# ═══ FUN ══════════════════════════════════════════════════════════════════════
+# ── Stats ─────────────────────────────────────────────────────────────────────
 
-async def dice_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _track_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    c = update.effective_chat
+    if u and c and c.type != "private":
+        await bump_stats(u.id, c.id)
+
+async def top_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rows = await top_users(update.effective_chat.id, 10)
+    if not rows:
+        await update.effective_message.reply_text("Henüz istatistik yok."); return
+    lines = []
+    medals = ["🥇","🥈","🥉"]
+    for i, row in enumerate(rows):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        try:
+            u = await ctx.bot.get_chat(row["user_id"])
+            name = u.first_name
+        except Exception:
+            name = str(row["user_id"])
+        lines.append(f"{medal} {html.escape(name)} — {row['messages']} mesaj")
+    await update.effective_message.reply_text(
+        "📊 <b>En aktif üyeler:</b>\n" + "\n".join(lines), parse_mode="HTML")
+
+
+# ── Fun commands ──────────────────────────────────────────────────────────────
+
+async def dice_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_dice()
 
+async def flip_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.effective_message.reply_text(
+        "🪙 " + random.choice(["Yazı!", "Tura!"]))
 
-async def flip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result = random.choice(["Yazı (heads) 🪙", "Tura (tails) 🪙"])
-    await update.effective_message.reply_text(result)
+_RPS = {"tas":"🪨","kaya":"🪨","stone":"🪨","rock":"🪨",
+        "kagit":"📄","kağıt":"📄","paper":"📄",
+        "makas":"✂️","scissors":"✂️"}
+_RPS_WIN = [("tas","makas"),("kagit","tas"),("makas","kagit"),
+            ("kaya","makas"),("kağıt","kaya"),("scissors","rock"),
+            ("rock","scissors"),("paper","rock"),("scissors","paper")]
 
-
-async def rps_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    choices = ["✊ Tas", "✋ Kagit", "✌️ Makas"]
-    await update.effective_message.reply_text(f"Botun secimi: {random.choice(choices)}")
-
-
-async def calc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    expr = " ".join(context.args) if context.args else ""
-    if not expr:
-        return await update.effective_message.reply_text("Kullanim: .calc 2+2*3")
-
-    # Safe eval - only allow math
-    safe_expr = re.sub(r"[^0-9+\-*/%.()\s^sqrtpielog]", "", expr.lower())
-    safe_expr = safe_expr.replace("^", "**")
-    try:
-        result = eval(safe_expr, {"__builtins__": {}}, {
-            "sqrt": math.sqrt, "pi": math.pi, "e": math.e,
-            "sin": math.sin, "cos": math.cos, "tan": math.tan,
-            "log": math.log, "abs": abs, "round": round,
-        })
+async def rps_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    args = ctx.args or []
+    choices = list(_RPS.keys())
+    bot_choice = random.choice(["tas","kagit","makas"])
+    if not args:
         await update.effective_message.reply_text(
-            f"<code>{expr} = {result}</code>", parse_mode="HTML"
-        )
-    except Exception:
-        await update.effective_message.reply_text("Gecersiz ifade.")
+            f"Kullanım: /rps <taş|kağıt|makas>\nBenim seçimim: {_RPS[bot_choice]}"); return
+    user_choice = args[0].lower().replace("ğ","ğ")
+    if user_choice not in _RPS:
+        await update.effective_message.reply_text("taş, kağıt veya makas gir!"); return
+    ue = _RPS[user_choice]
+    be = _RPS[bot_choice]
+    if user_choice == bot_choice:
+        result = "🤝 Berabere!"
+    elif (user_choice, bot_choice) in _RPS_WIN:
+        result = "🎉 Sen kazandın!"
+    else:
+        result = "🤖 Ben kazandım!"
+    await update.effective_message.reply_text(f"Sen: {ue} | Ben: {be}\n{result}")
 
-
-async def weather_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    city = " ".join(context.args) if context.args else ""
-    if not city:
-        return await update.effective_message.reply_text("Kullanim: .weather Istanbul")
+async def calc_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    args = ctx.args or []
+    if not args:
+        await update.effective_message.reply_text("Kullanım: /calc <işlem>"); return
+    expr = " ".join(args)
+    safe = re.sub(r"[^0-9+\-*/().% ]", "", expr)
     try:
-        import requests
-        r = requests.get(
-            f"https://wttr.in/{city.replace(' ', '+')}?format=4",
-            timeout=5,
-            headers={"User-Agent": "TelegramBot"},
-        )
-        if r.status_code == 200 and r.text.strip():
-            await update.effective_message.reply_text(f"🌤 {r.text.strip()}")
-        else:
-            await update.effective_message.reply_text("Hava durumu alinamadi.")
-    except Exception as e:
-        await update.effective_message.reply_text(f"Hata: {e}")
+        result = eval(safe, {"__builtins__": {}})
+        await update.effective_message.reply_text(f"🧮 {expr} = {result}")
+    except Exception:
+        await update.effective_message.reply_text("❌ Geçersiz işlem.")
 
-
-async def poll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def id_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    args = context.args
-    if not args or len(args) < 3:
-        return await msg.reply_text(
-            "Kullanim: .poll <soru> <secenek1> <secenek2> [secenek3...]\n"
-            'Ornek: .poll "Favori rengin?" Mavi Yesil Kirmizi'
-        )
-
-    # Parse quoted question or first word
-    text = " ".join(args)
-    if text.startswith('"'):
-        end = text.find('"', 1)
-        if end != -1:
-            question = text[1:end]
-            options  = text[end+1:].strip().split()
-        else:
-            parts    = args
-            question = parts[0]
-            options  = parts[1:]
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        u = msg.reply_to_message.from_user
+        await msg.reply_text(
+            f"👤 {html.escape(u.full_name)}\n🆔 ID: <code>{u.id}</code>", parse_mode="HTML")
     else:
-        question = args[0]
-        options  = args[1:]
+        u = update.effective_user
+        c = update.effective_chat
+        await msg.reply_text(
+            f"👤 Sen: <code>{u.id}</code>\n💬 Grup: <code>{c.id}</code>", parse_mode="HTML")
 
-    if len(options) < 2:
-        return await msg.reply_text("En az 2 secenek gerekli.")
-    if len(options) > 10:
-        return await msg.reply_text("En fazla 10 secenek olabilir.")
+async def ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    start = time.time()
+    m = await update.effective_message.reply_text("🏓 Pong!")
+    delta = (time.time() - start) * 1000
+    await m.edit_text(f"🏓 Pong! <b>{delta:.0f}ms</b>", parse_mode="HTML")
 
-    await context.bot.send_poll(
-        update.effective_chat.id,
-        question=question[:300],
-        options=[o[:100] for o in options[:10]],
-        is_anonymous=True,
-    )
-
-
-async def quote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def info_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    if msg.reply_to_message:
-        r    = msg.reply_to_message
-        text = r.text or r.caption or ""
-        name = r.from_user.first_name if r.from_user else "Bilinmeyen"
-        if text:
-            await msg.reply_text(
-                f"❝ {html.escape(text)} ❞\n\n— {html.escape(name)}",
-                parse_mode="HTML",
-            )
-        else:
-            await msg.reply_text("Alcintılanacak metin yok.")
-    else:
-        quotes = [
-            "Hayat bir bisiklet surmek gibidir. Dengeni korumak icin hareket etmelisin. — Einstein",
-            "Basari, hevesle aranan bir seyin sonucudur. — Edison",
-            "Eger dugme dikmesini bilmiyorsan, tahta oturma. — Ataturk",
-        ]
-        await msg.reply_text(f"💬 {random.choice(quotes)}")
+    target = msg.reply_to_message.from_user if msg.reply_to_message else update.effective_user
+    u = target
+    text = (f"👤 <b>{html.escape(u.full_name)}</b>\n"
+            f"🆔 <code>{u.id}</code>\n"
+            f"📛 @{u.username or '(yok)'}\n"
+            f"🤖 Bot: {'Evet' if u.is_bot else 'Hayır'}")
+    await msg.reply_text(text, parse_mode="HTML")
 
-
-async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def report_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg.reply_to_message:
-        return await msg.reply_text("Kimi sikayet ediyorsun? Mesajina reply at.")
-
+        await msg.reply_text("Şikayet etmek için bir mesajı yanıtla."); return
     reported = msg.reply_to_message.from_user
     reporter = update.effective_user
-    reason   = " ".join(context.args) if context.args else "Sebep belirtilmedi"
-    chat     = update.effective_chat
+    admins = await update.effective_chat.get_administrators()
+    for adm in admins:
+        if adm.user.is_bot: continue
+        try:
+            await ctx.bot.send_message(adm.user.id,
+                f"⚠️ Şikayet!\n"
+                f"Şikayet eden: {mention(reporter.id, reporter.first_name)}\n"
+                f"Şikayet edilen: {mention(reported.id, reported.first_name)}\n"
+                f"Grup: {html.escape(update.effective_chat.title or '')}",
+                parse_mode="HTML")
+        except Exception: pass
+    await msg.reply_text("✅ Adminler bilgilendirildi.")
 
-    try:
-        admins = await chat.get_administrators()
-        admin_pings = " ".join(
-            f"@{a.user.username}" if a.user.username else ""
-            for a in admins if not a.user.is_bot and a.user.username
-        )
-    except Exception:
-        admin_pings = ""
+async def rules_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    from database import get_rules
+    text = await get_rules(update.effective_chat.id)
+    if not text:
+        await update.effective_message.reply_text("Henüz kural eklenmemiş."); return
+    await update.effective_message.reply_text(
+        f"📜 <b>Kurallar:</b>\n{text}", parse_mode="HTML")
 
-    await msg.reply_text(
-        f"⚠️ <b>Sikayet</b>\n\n"
-        f"Sikayet eden: {mention(reporter.id, reporter.first_name)}\n"
-        f"Sikayet edilen: {mention(reported.id, reported.first_name)}\n"
-        f"Sebep: {html.escape(reason)}\n\n"
-        f"{admin_pings}",
-        parse_mode="HTML",
-    )
+async def setrules_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    from database import set_rules
+    msg = update.effective_message
+    text = " ".join(ctx.args) if ctx.args else (
+        msg.reply_to_message.text if msg.reply_to_message else "")
+    if not text:
+        await msg.reply_text("Kullanım: /setrules <kurallar>"); return
+    await set_rules(update.effective_chat.id, text)
+    await msg.reply_text("✅ Kurallar ayarlandı.")
 
 
-# ═══ REGISTER ════════════════════════════════════════════════════════════════
+def register(app):
+    app.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+        _check_afk), group=20)
+    app.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & filters.ALL & ~filters.COMMAND,
+        _track_stats), group=20)
 
-def register_extras_handlers(app):
-    cmds = [
-        ("broadcast", broadcast_cmd), ("bc", broadcast_cmd),
-        ("pbroadcast", pbroadcast_cmd),
-        ("afk", afk_cmd), ("back", back_cmd),
-        ("dice", dice_cmd), ("roll", dice_cmd),
-        ("flip", flip_cmd), ("coin", flip_cmd),
+    for cmd, h in [
+        ("broadcast", broadcast_cmd),
+        ("afk", afk_cmd),
+        ("top", top_cmd),
+        ("dice", dice_cmd),
+        ("flip", flip_cmd),
         ("rps", rps_cmd),
-        ("calc", calc_cmd), ("hesapla", calc_cmd),
-        ("weather", weather_cmd), ("hava", weather_cmd),
-        ("poll", poll_cmd), ("anket", poll_cmd),
-        ("quote", quote_cmd), ("alinti", quote_cmd),
-        ("report", report_cmd), ("sikayet", report_cmd),
-    ]
-    for cmd, handler in cmds:
-        app.add_handler(CommandHandler(cmd, handler))
-        app.add_handler(MessageHandler(filters.TEXT & dot_filter(cmd), handler))
-
-    # AFK check on every message
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, check_afk_mention),
-        group=20,
-    )
+        ("calc", calc_cmd),
+        ("id", id_cmd),
+        ("ping", ping_cmd),
+        ("info", info_cmd),
+        ("report", report_cmd),
+        ("rules", rules_cmd),
+        ("setrules", setrules_cmd),
+    ]:
+        app.add_handler(MessageHandler(dcmd(cmd), h), group=10)
