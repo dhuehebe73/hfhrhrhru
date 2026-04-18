@@ -1,6 +1,7 @@
 import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler
+from telegram.error import BadRequest
 from utils import dcmd
 
 _HELP_CATEGORIES = {
@@ -160,16 +161,22 @@ async def help_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if not data.startswith("help|"): return
     cat = data.split("|", 1)[1]
-    if cat == "main":
+    try:
+        if cat == "main":
+            await query.edit_message_text(
+                "📚 <b>Yardım Menüsü</b>\n\nBir kategori seç:",
+                parse_mode="HTML", reply_markup=_main_menu_kb())
+            return
+        if cat not in _HELP_CATEGORIES: return
+        info = _HELP_CATEGORIES[cat]
+        # html.escape prevents <metin> <url> etc. from being parsed as HTML tags
+        body = html.escape(info["text"])
         await query.edit_message_text(
-            "📚 <b>Yardım Menüsü</b>\n\nBir kategori seç:",
-            parse_mode="HTML", reply_markup=_main_menu_kb())
-        return
-    if cat not in _HELP_CATEGORIES: return
-    info = _HELP_CATEGORIES[cat]
-    await query.edit_message_text(
-        f"{info['title']}\n\n{info['text']}",
-        parse_mode="HTML", reply_markup=_category_kb(cat))
+            f"<b>{html.escape(info['title'])}</b>\n\n{body}",
+            parse_mode="HTML", reply_markup=_category_kb(cat))
+    except BadRequest as e:
+        if "not modified" not in str(e).lower():
+            raise
 
 
 def register(app):

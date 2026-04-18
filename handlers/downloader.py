@@ -114,33 +114,43 @@ async def _send_media(update_or_query, ctx, url: str, audio_only: bool):
         except Exception: pass
 
 
+def _make_url(args: list[str]) -> tuple[str, str]:
+    """Returns (yt_dlp_url, display_label). Supports names or URLs."""
+    query = " ".join(args)
+    if query.startswith(("http://", "https://")):
+        return query, query[:60]
+    # Name search — yt-dlp handles ytsearch natively
+    return f"ytsearch1:{query}", f"🔎 {query[:55]}"
+
+
 async def play_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args or []
     if not args:
         await update.effective_message.reply_text(
-            "Kullanım: /play <url>\nDesteklenen: YouTube, SoundCloud, Spotify vb."); return
-    url = args[0]
+            "Kullanım: /play <şarkı adı veya URL>\nÖrnek: /play Tarkan Şımarık"); return
+    url, label = _make_url(args)
     h = _hash_url(url)
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("🎵 Ses İndir", callback_data=f"dl_a|{h}"),
         InlineKeyboardButton("🎬 Video İndir", callback_data=f"dl_v|{h}"),
     ]])
     await update.effective_message.reply_text(
-        f"🔗 <code>{url[:60]}</code>\n\nNe indireyim?",
+        f"<code>{label}</code>\n\nNe indireyim?",
         parse_mode="HTML", reply_markup=kb)
 
 async def video_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args or []
     if not args:
-        await update.effective_message.reply_text("Kullanım: /video <url>"); return
-    url = args[0]
+        await update.effective_message.reply_text(
+            "Kullanım: /video <video adı veya URL>"); return
+    url, label = _make_url(args)
     h = _hash_url(url)
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("🎵 Ses", callback_data=f"dl_a|{h}"),
         InlineKeyboardButton("🎬 Video", callback_data=f"dl_v|{h}"),
     ]])
     await update.effective_message.reply_text(
-        f"🔗 <code>{url[:60]}</code>\n\nNe indireyim?",
+        f"<code>{label}</code>\n\nNe indireyim?",
         parse_mode="HTML", reply_markup=kb)
 
 async def dl_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

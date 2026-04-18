@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 from database import get_settings, set_setting
 from utils import require_admin, dcmd
 
@@ -57,8 +58,11 @@ async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "stg_refresh":
         s = await get_settings(chat_id)
-        await query.edit_message_text(_settings_text(s), parse_mode="HTML",
-                                      reply_markup=_settings_kb(s))
+        try:
+            await query.edit_message_text(_settings_text(s), parse_mode="HTML",
+                                          reply_markup=_settings_kb(s))
+        except BadRequest as e:
+            if "not modified" not in str(e).lower(): raise
         return
 
     if data.startswith("stg_toggle|"):
@@ -70,8 +74,11 @@ async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         new_val = 0 if s.get(key) else 1
         await set_setting(chat_id, key, new_val)
         s = await get_settings(chat_id)
-        await query.edit_message_text(_settings_text(s), parse_mode="HTML",
-                                      reply_markup=_settings_kb(s))
+        try:
+            await query.edit_message_text(_settings_text(s), parse_mode="HTML",
+                                          reply_markup=_settings_kb(s))
+        except BadRequest as e:
+            if "not modified" not in str(e).lower(): raise
 
 
 def register(app):
