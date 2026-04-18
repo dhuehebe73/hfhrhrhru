@@ -70,9 +70,9 @@ async def _on_member_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception: pass
         try:
             q = await ctx.bot.send_message(chat.id,
-                f"👋 {mention(user.id, user.first_name)}, doğrulama:\n\n"
+                f"👋 {mention(user.id, user.first_name)}, lütfen doğrula:\n\n"
                 f"<b>{a} + {b} = ?</b>\n\n"
-                f"/{answer} şeklinde cevapla. ({w.get('captcha_timeout',60)}sn)",
+                f"Cevabı yaz (sadece rakam). ({w.get('captcha_timeout',60)}sn)",
                 parse_mode="HTML")
             expires = int(time.time()) + w.get("captcha_timeout", 60)
             await set_captcha_pending(user.id, chat.id, answer, expires, q.message_id)
@@ -105,14 +105,14 @@ async def _captcha_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not msg or not msg.from_user: return
     chat = update.effective_chat
     if not chat or chat.type == "private": return
-    text = msg.text or ""
-    if not text.startswith("/"): return
-    try:
-        guess = int(text[1:].split()[0])
-    except (ValueError, IndexError):
-        return
+    text = (msg.text or "").strip()
+    if not text.isdigit(): return
     pending = await get_captcha_pending(msg.from_user.id, chat.id)
     if not pending: return
+    try:
+        guess = int(text)
+    except ValueError:
+        return
     try: await msg.delete()
     except Exception: pass
     if int(time.time()) > pending["expires"]:
