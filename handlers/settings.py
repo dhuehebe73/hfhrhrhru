@@ -6,11 +6,11 @@ from utils import require_admin, dcmd
 
 _TOGGLES = [
     ("anti_flood",       "Anti-Flood"),
-    ("link_filter",      "Link Filtresi"),
-    ("sticker_filter",   "Sticker Filtresi"),
-    ("media_filter",     "Medya Filtresi"),
-    ("bot_filter",       "Bot Filtresi"),
-    ("auto_ban_leavers", "Çıkan = Ban"),
+    ("link_filter",      "Link Filter"),
+    ("sticker_filter",   "Sticker Filter"),
+    ("media_filter",     "Media Filter"),
+    ("bot_filter",       "Bot Filter"),
+    ("auto_ban_leavers", "Auto-ban on leave"),
 ]
 
 
@@ -20,21 +20,18 @@ def _settings_kb(s: dict) -> InlineKeyboardMarkup:
         state = "✅" if s.get(key) else "❌"
         rows.append([InlineKeyboardButton(
             f"{state} {label}", callback_data=f"stg_toggle|{key}")])
-    rows.append([InlineKeyboardButton("🔄 Yenile", callback_data="stg_refresh"),
-                 InlineKeyboardButton("❌ Kapat",  callback_data="stg_close")])
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="stg_refresh"),
+                 InlineKeyboardButton("❌ Close",   callback_data="stg_close")])
     return InlineKeyboardMarkup(rows)
 
 
 def _settings_text(s: dict) -> str:
-    lines = ["⚙️ <b>Grup Ayarları</b>\n"]
+    lines = ["⚙️ <b>Group Settings</b>\n"]
     for key, label in _TOGGLES:
         icon = "✅" if s.get(key) else "❌"
         lines.append(f"{icon} {label}")
-    flood_limit = s.get("flood_limit", 5)
-    warn_limit  = s.get("warn_limit", 3)
-    warn_action = s.get("warn_action", "ban")
-    lines.append(f"\n⚡ Flood limiti: {flood_limit}")
-    lines.append(f"⚠️ Uyarı limiti: {warn_limit} → {warn_action}")
+    lines.append(f"\n⚡ Flood limit: {s.get('flood_limit', 5)}")
+    lines.append(f"⚠️ Warn limit: {s.get('warn_limit', 3)} → {s.get('warn_action', 'ban')}")
     return "\n".join(lines)
 
 
@@ -69,7 +66,7 @@ async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         key = data.split("|", 1)[1]
         from utils import is_admin
         if not await is_admin(update, ctx):
-            await query.answer("❌ Admin değilsin.", show_alert=True); return
+            await query.answer("❌ You must be an admin.", show_alert=True); return
         s = await get_settings(chat_id)
         new_val = 0 if s.get(key) else 1
         await set_setting(chat_id, key, new_val)

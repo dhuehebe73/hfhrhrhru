@@ -1,7 +1,8 @@
 import html, random, math, re, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Poll
 from telegram.ext import ContextTypes, MessageHandler, filters
-from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users)
+from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users,
+                      get_all_users)
 from utils import require_admin, mention, dcmd, fmt_ago, get_args
 from config import OWNER_ID
 
@@ -208,6 +209,40 @@ async def setrules_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text("✅ Kurallar ayarlandı.")
 
 
+async def users_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.effective_message.reply_text("❌ Owner only."); return
+    users = await get_all_users()
+    if not users:
+        await update.effective_message.reply_text("No users yet."); return
+    lines = []
+    for u in users[:50]:
+        name = html.escape(u["first_name"] or str(u["user_id"]))
+        un   = f" @{u['username']}" if u["username"] else ""
+        lines.append(f"• <code>{u['user_id']}</code> {name}{un}")
+    text = f"👥 <b>Bot Users ({len(users)})</b>\n\n" + "\n".join(lines)
+    if len(users) > 50:
+        text += f"\n\n…and {len(users)-50} more."
+    await update.effective_message.reply_text(text, parse_mode="HTML")
+
+async def chats_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.effective_message.reply_text("❌ Owner only."); return
+    chats = await get_all_chats()
+    if not chats:
+        await update.effective_message.reply_text("No chats registered yet."); return
+    groups   = [c for c in chats if c["chat_type"] in ("group","supergroup")]
+    channels = [c for c in chats if c["chat_type"] == "channel"]
+    lines = [f"📊 <b>Registered Chats ({len(chats)})</b>",
+             f"👥 Groups: {len(groups)} | 📢 Channels: {len(channels)}\n"]
+    for c in chats[:40]:
+        icon = "📢" if c["chat_type"] == "channel" else "👥"
+        lines.append(f"{icon} <code>{c['chat_id']}</code> {html.escape(c['title'] or '')}")
+    if len(chats) > 40:
+        lines.append(f"\n…and {len(chats)-40} more.")
+    await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 def register(app):
     app.add_handler(MessageHandler(
         filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
@@ -218,6 +253,8 @@ def register(app):
 
     for cmd, h in [
         ("broadcast", broadcast_cmd),
+        ("users", users_cmd),
+        ("chats", chats_cmd),
         ("afk", afk_cmd),
         ("top", top_cmd),
         ("dice", dice_cmd),

@@ -84,6 +84,13 @@ async def init_db():
                 user_id INTEGER, chat_id INTEGER,
                 answer INTEGER, expires INTEGER, msg_id INTEGER,
                 PRIMARY KEY(user_id, chat_id));
+
+            CREATE TABLE IF NOT EXISTS bot_users(
+                user_id    INTEGER PRIMARY KEY,
+                username   TEXT DEFAULT '',
+                first_name TEXT DEFAULT '',
+                lang       TEXT DEFAULT 'en',
+                started_at INTEGER);
         """)
         await db.commit()
 
@@ -429,6 +436,39 @@ async def clear_captcha_pending(uid: int, cid: int):
         await db.execute(
             "DELETE FROM captcha_pending WHERE user_id=? AND chat_id=?", (uid, cid))
         await db.commit()
+
+async def register_user(uid: int, username: str, first_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO bot_users(user_id,username,first_name,started_at) VALUES(?,?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET username=?,first_name=?",
+            (uid, username, first_name, int(time.time()), username, first_name))
+        await db.commit()
+
+async def get_user_lang(uid: int) -> str:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT lang FROM bot_users WHERE user_id=?", (uid,)
+        ) as c:
+            row = await c.fetchone()
+    return row[0] if row else "en"
+
+async def set_user_lang(uid: int, lang: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO bot_users(user_id,lang,started_at) VALUES(?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET lang=?",
+            (uid, lang, int(time.time()), lang))
+        await db.commit()
+
+async def get_all_users() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id,username,first_name,started_at FROM bot_users ORDER BY started_at DESC"
+        ) as c:
+            return [{"user_id": r[0], "username": r[1], "first_name": r[2], "started_at": r[3]}
+                    for r in await c.fetchall()]
+
 
 async def approve(uid: int, cid: int):
     async with aiosqlite.connect(DB_PATH) as db:
