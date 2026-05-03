@@ -488,6 +488,9 @@ async def get_user_stats(uid: int, cid: int) -> dict | None:
         ) as c:
             row = await c.fetchone()
     return {"messages": row[0], "last_seen": row[1]} if row else None
+
+
+async def approve(uid: int, cid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT OR IGNORE INTO approved_users VALUES(?,?)", (uid, cid))
         await db.commit()
