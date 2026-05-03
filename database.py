@@ -476,15 +476,20 @@ async def get_all_users() -> list[dict]:
 
 
 async def upsert_user_cache(uid: int, username: str, first_name: str):
+    uname = username.lower().lstrip("@") if username else ""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO user_cache(user_id,username,first_name) VALUES(?,?,?)"
-            " ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name",
-            (uid, username.lower().lstrip("@"), first_name))
+            " ON CONFLICT(user_id) DO UPDATE SET"
+            "  username=CASE WHEN excluded.username!='' THEN excluded.username ELSE user_cache.username END,"
+            "  first_name=CASE WHEN excluded.first_name!='' THEN excluded.first_name ELSE user_cache.first_name END",
+            (uid, uname, first_name or ""))
         await db.commit()
 
 async def get_user_by_username(username: str) -> dict | None:
     uname = username.lower().lstrip("@")
+    if not uname:
+        return None
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT user_id, first_name FROM user_cache WHERE username=?", (uname,)

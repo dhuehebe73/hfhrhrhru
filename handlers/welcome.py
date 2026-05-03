@@ -3,7 +3,8 @@ from telegram import Update, ChatPermissions
 from telegram.ext import ContextTypes, MessageHandler, ChatMemberHandler, filters
 from database import (get_welcome, set_welcome_field, get_settings, set_setting,
                       mark_left, has_left, clear_left,
-                      set_captcha_pending, get_captcha_pending, clear_captcha_pending)
+                      set_captcha_pending, get_captcha_pending, clear_captcha_pending,
+                      upsert_user_cache)
 from utils import require_admin, MUTE_PERMS, FULL_PERMS, mention, dcmd, later, get_args
 
 
@@ -23,6 +24,8 @@ async def _on_member_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat = result.chat
     old, new = result.old_chat_member, result.new_chat_member
     user = new.user
+    if user and user.username:
+        await upsert_user_cache(user.id, user.username, user.first_name or "")
 
     from telegram.constants import ChatMemberStatus as CMS
 

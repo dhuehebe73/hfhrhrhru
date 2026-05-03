@@ -76,6 +76,8 @@ async def _track_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await bump_stats(u.id, c.id)
         if u.username:
             await upsert_user_cache(u.id, u.username, u.first_name or "")
+        elif u.first_name:
+            await upsert_user_cache(u.id, "", u.first_name)
 
 async def top_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rows = await top_users(update.effective_chat.id, 10)
@@ -182,7 +184,7 @@ async def info_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif args:
         uid, fname, _ = await resolve_user(update, ctx)
         if not uid:
-            await msg.reply_text("❌ Kullanıcı bulunamadı.\n💡 Önce grupta mesaj atmış olmalı."); return
+            await msg.reply_text("❌ Kullanıcı bulunamadı.\n💡 Profili gizli veya hiç mesaj atmamış olabilir."); return
         try:
             u = (await ctx.bot.get_chat(uid))
         except Exception:
@@ -339,7 +341,7 @@ def register(app):
         filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
         _check_afk), group=20)
     app.add_handler(MessageHandler(
-        filters.ChatType.GROUPS & filters.ALL & ~filters.COMMAND,
+        filters.ChatType.GROUPS & filters.ALL,
         _track_stats), group=20)
     app.add_handler(MessageHandler(
         filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,

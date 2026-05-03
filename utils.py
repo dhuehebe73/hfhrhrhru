@@ -53,15 +53,20 @@ async def resolve_user(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 return uid, str(uid), reason
         if a0.startswith("@"):
-            from database import get_user_by_username
+            from database import get_user_by_username, upsert_user_cache
+            # Try Telegram API first (works for public profiles)
+            try:
+                u = await ctx.bot.get_chat(a0)
+                if u and u.id:
+                    if getattr(u, "username", None):
+                        await upsert_user_cache(u.id, u.username, u.first_name or "")
+                    return u.id, u.first_name or a0[1:], reason
+            except Exception:
+                pass
+            # Fall back to local cache
             cached = await get_user_by_username(a0)
             if cached:
                 return cached["user_id"], cached["first_name"] or a0[1:], reason
-            try:
-                u = await ctx.bot.get_chat(a0)
-                return u.id, u.first_name or a0[1:], reason
-            except Exception:
-                pass
     return None, None, None
 
 
