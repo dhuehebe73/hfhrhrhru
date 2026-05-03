@@ -104,18 +104,7 @@ async def _ytdlp_download(url: str, audio_only: bool) -> tuple[str | None, str |
         common["cookiefile"] = cookies
 
     if audio_only:
-        if ffmpeg:
-            opts = {
-                **common,
-                "format": "bestaudio/best",
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }],
-            }
-        else:
-            opts = {**common, "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio/best"}
+        opts = {**common, "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio/best"}
     else:
         opts = {**common, "format": "best[ext=mp4]/best[height<=720]/best"}
 
@@ -124,7 +113,14 @@ async def _ytdlp_download(url: str, audio_only: bool) -> tuple[str | None, str |
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
             files = os.listdir(tmpdir)
-            return os.path.join(tmpdir, files[0]) if files else None
+            if not files:
+                return None
+            fp = os.path.join(tmpdir, files[0])
+            if audio_only and not fp.endswith(".mp3"):
+                new_fp = os.path.splitext(fp)[0] + ".mp3"
+                os.rename(fp, new_fp)
+                fp = new_fp
+            return fp
         except Exception as e:
             return str(e)
 
