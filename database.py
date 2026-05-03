@@ -87,10 +87,10 @@ async def init_db():
 
             CREATE TABLE IF NOT EXISTS user_cache(
                 user_id    INTEGER PRIMARY KEY,
-                username   TEXT DEFAULT '' COLLATE NOCASE,
+                username   TEXT DEFAULT '',
                 first_name TEXT DEFAULT '');
 
-
+            CREATE TABLE IF NOT EXISTS bot_users(
                 user_id    INTEGER PRIMARY KEY,
                 username   TEXT DEFAULT '',
                 first_name TEXT DEFAULT '',
