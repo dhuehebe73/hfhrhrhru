@@ -103,8 +103,14 @@ async def _ytdlp_download(url: str, audio_only: bool) -> tuple[str | None, str |
     if cookies:
         common["cookiefile"] = cookies
 
+    _IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
+
     if audio_only:
-        opts = {**common, "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio/best"}
+        opts = {
+            **common,
+            "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio/best",
+            "writethumbnail": True,
+        }
     else:
         opts = {**common, "format": "best[ext=mp4]/best[height<=720]/best"}
 
@@ -115,7 +121,10 @@ async def _ytdlp_download(url: str, audio_only: bool) -> tuple[str | None, str |
             files = os.listdir(tmpdir)
             if not files:
                 return None
-            fp = os.path.join(tmpdir, files[0])
+            audio_files = [f for f in files if not f.lower().endswith(_IMG_EXTS)]
+            if not audio_files:
+                return None
+            fp = os.path.join(tmpdir, audio_files[0])
             if audio_only and not fp.endswith(".mp3"):
                 new_fp = os.path.splitext(fp)[0] + ".mp3"
                 os.rename(fp, new_fp)
@@ -189,10 +198,23 @@ async def _send(query_or_update, ctx, filepath: str, audio_only: bool):
         await _edit("❌ File too large (>50 MB — Telegram limit).")
         return
 
+    _IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
+    thumb_bytes = None
+    if audio_only:
+        d = os.path.dirname(filepath)
+        for f in os.listdir(d):
+            if f.lower().endswith(_IMG_EXTS):
+                try:
+                    with open(os.path.join(d, f), "rb") as tf:
+                        thumb_bytes = tf.read()
+                except Exception:
+                    pass
+                break
+
     try:
         with open(filepath, "rb") as f:
             if audio_only:
-                await ctx.bot.send_audio(chat_id, f)
+                await ctx.bot.send_audio(chat_id, f, thumbnail=thumb_bytes)
             else:
                 await ctx.bot.send_video(chat_id, f)
         try:

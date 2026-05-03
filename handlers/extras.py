@@ -1,8 +1,8 @@
-import html, random, math, re, time
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Poll
+import html, random, re, time
+from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users,
-                      get_all_users)
+                      get_all_users, get_chat_member_ids, get_user_stats)
 from utils import require_admin, mention, dcmd, fmt_ago, get_args
 from config import OWNER_ID
 
@@ -159,15 +159,78 @@ async def ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     delta = (time.time() - start) * 1000
     await m.edit_text(f"🏓 Pong! <b>{delta:.0f}ms</b>", parse_mode="HTML")
 
+_STATUS_LABELS = {
+    "creator":       "👑 Owner",
+    "administrator": "⭐ Admin",
+    "member":        "👤 Üye",
+    "restricted":    "🔇 Kısıtlı",
+    "left":          "🚪 Ayrıldı",
+    "kicked":        "🚫 Yasaklı",
+}
+
 async def info_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    target = msg.reply_to_message.from_user if msg.reply_to_message else update.effective_user
-    u = target
-    text = (f"👤 <b>{html.escape(u.full_name)}</b>\n"
-            f"🆔 <code>{u.id}</code>\n"
-            f"📛 @{u.username or '(yok)'}\n"
-            f"🤖 Bot: {'Evet' if u.is_bot else 'Hayır'}")
-    await msg.reply_text(text, parse_mode="HTML")
+    msg  = update.effective_message
+    args = get_args(update, ctx)
+    chat = update.effective_chat
+    u    = None
+
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        u = msg.reply_to_message.from_user
+    elif args:
+        a0 = args[0]
+        if a0.lstrip("-").isdigit():
+            try:
+                obj = await ctx.bot.get_chat(int(a0))
+                u   = obj
+            except Exception:
+                await msg.reply_text("❌ Kullanıcı bulunamadı."); return
+        elif a0.startswith("@"):
+            if chat and chat.type != "private":
+                try:
+                    member = await ctx.bot.get_chat_member(chat.id, a0)
+                    u = member.user
+                except Exception:
+                    pass
+            if not u:
+                try:
+                    obj = await ctx.bot.get_chat(a0)
+                    u   = obj
+                except Exception:
+                    pass
+        if not u:
+            await msg.reply_text("❌ Kullanıcı bulunamadı."); return
+    else:
+        u = update.effective_user
+
+    lines = []
+    full_name = html.escape((getattr(u, "full_name", None) or
+                             " ".join(filter(None, [getattr(u, "first_name", ""), getattr(u, "last_name", "")])) or
+                             str(u.id)))
+    premium = "⭐" if getattr(u, "is_premium", False) else ""
+    lines.append(f"👤 <b>{full_name}</b> {premium}".strip())
+    lines.append(f"🆔 <code>{u.id}</code>")
+    if getattr(u, "first_name", None):
+        lines.append(f"📝 İsim: {html.escape(u.first_name)}")
+    if getattr(u, "last_name", None):
+        lines.append(f"📝 Soyisim: {html.escape(u.last_name)}")
+    if getattr(u, "username", None):
+        lines.append(f"📛 @{u.username}")
+    lines.append(f"🔗 <a href='tg://user?id={u.id}'>Profil Linki</a>")
+    lines.append(f"🤖 Bot: {'Evet' if getattr(u, 'is_bot', False) else 'Hayır'}")
+
+    if chat and chat.type != "private":
+        try:
+            member = await ctx.bot.get_chat_member(chat.id, u.id)
+            lines.append(f"📊 Durum: {_STATUS_LABELS.get(member.status, member.status)}")
+        except Exception:
+            pass
+        stats = await get_user_stats(u.id, chat.id)
+        if stats:
+            lines.append(f"💬 Mesaj: {stats['messages']}")
+            if stats["last_seen"]:
+                lines.append(f"🕐 Son görülme: {fmt_ago(stats['last_seen'])} önce")
+
+    await msg.reply_text("\n".join(lines), parse_mode="HTML")
 
 async def report_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -187,6 +250,41 @@ async def report_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML")
         except Exception: pass
     await msg.reply_text("✅ Adminler bilgilendirildi.")
+
+async def everyone_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await require_admin(update, ctx): return
+    chat = update.effective_chat
+    if chat.type == "private":
+        await update.effective_message.reply_text("❌ Sadece gruplarda çalışır."); return
+    args = get_args(update, ctx)
+    extra = " ".join(args)
+    members = await get_chat_member_ids(chat.id)
+    if not members:
+        await update.effective_message.reply_text("❌ Henüz takip edilen üye yok."); return
+
+    # Chunk into groups of 40 to stay under message length limit
+    chunk = 40
+    for i in range(0, len(members), chunk):
+        batch = members[i:i + chunk]
+        pings = "".join(
+            f'<a href="tg://user?id={m["user_id"]}">​</a>'
+            for m in batch
+        )
+        if i == 0:
+            header = f"📢 <b>{html.escape(extra)}</b>\n" if extra else "📢 <b>Herkese duyuru!</b>\n"
+            await update.effective_message.reply_text(header + pings, parse_mode="HTML")
+        else:
+            await chat.send_message(pings, parse_mode="HTML")
+
+
+async def _everyone_trigger(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg  = update.effective_message
+    text = (msg.text or "").lower()
+    if "@herkes" not in text and "@everyone" not in text: return
+    from utils import is_admin
+    if not await is_admin(update, ctx): return
+    await everyone_cmd(update, ctx)
+
 
 async def rules_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from database import get_rules
@@ -250,6 +348,9 @@ def register(app):
     app.add_handler(MessageHandler(
         filters.ChatType.GROUPS & filters.ALL & ~filters.COMMAND,
         _track_stats), group=20)
+    app.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND,
+        _everyone_trigger), group=15)
 
     for cmd, h in [
         ("broadcast", broadcast_cmd),
@@ -265,6 +366,8 @@ def register(app):
         ("ping", ping_cmd),
         ("info", info_cmd),
         ("report", report_cmd),
+        ("everyone", everyone_cmd),
+        ("herkes", everyone_cmd),
         ("rules", rules_cmd),
         ("setrules", setrules_cmd),
     ]:

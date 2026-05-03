@@ -470,7 +470,24 @@ async def get_all_users() -> list[dict]:
                     for r in await c.fetchall()]
 
 
-async def approve(uid: int, cid: int):
+async def get_chat_member_ids(cid: int) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id, messages, last_seen FROM user_stats WHERE chat_id=? ORDER BY messages DESC",
+            (cid,)
+        ) as c:
+            return [{"user_id": r[0], "messages": r[1], "last_seen": r[2]}
+                    for r in await c.fetchall()]
+
+
+async def get_user_stats(uid: int, cid: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT messages, last_seen FROM user_stats WHERE user_id=? AND chat_id=?",
+            (uid, cid)
+        ) as c:
+            row = await c.fetchone()
+    return {"messages": row[0], "last_seen": row[1]} if row else None
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT OR IGNORE INTO approved_users VALUES(?,?)", (uid, cid))
         await db.commit()
