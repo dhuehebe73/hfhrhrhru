@@ -85,7 +85,12 @@ async def init_db():
                 answer INTEGER, expires INTEGER, msg_id INTEGER,
                 PRIMARY KEY(user_id, chat_id));
 
-            CREATE TABLE IF NOT EXISTS bot_users(
+            CREATE TABLE IF NOT EXISTS user_cache(
+                user_id    INTEGER PRIMARY KEY,
+                username   TEXT DEFAULT '' COLLATE NOCASE,
+                first_name TEXT DEFAULT '');
+
+
                 user_id    INTEGER PRIMARY KEY,
                 username   TEXT DEFAULT '',
                 first_name TEXT DEFAULT '',
@@ -468,6 +473,24 @@ async def get_all_users() -> list[dict]:
         ) as c:
             return [{"user_id": r[0], "username": r[1], "first_name": r[2], "started_at": r[3]}
                     for r in await c.fetchall()]
+
+
+async def upsert_user_cache(uid: int, username: str, first_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO user_cache(user_id,username,first_name) VALUES(?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, first_name=excluded.first_name",
+            (uid, username.lower().lstrip("@"), first_name))
+        await db.commit()
+
+async def get_user_by_username(username: str) -> dict | None:
+    uname = username.lower().lstrip("@")
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id, first_name FROM user_cache WHERE username=?", (uname,)
+        ) as c:
+            row = await c.fetchone()
+    return {"user_id": row[0], "first_name": row[1]} if row else None
 
 
 async def get_chat_member_ids(cid: int) -> list[dict]:

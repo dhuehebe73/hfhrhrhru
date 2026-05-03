@@ -53,14 +53,10 @@ async def resolve_user(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 return uid, str(uid), reason
         if a0.startswith("@"):
-            chat = update.effective_chat
-            if chat and chat.type != "private":
-                try:
-                    member = await ctx.bot.get_chat_member(chat.id, a0)
-                    u = member.user
-                    return u.id, u.first_name or a0[1:], reason
-                except Exception:
-                    pass
+            from database import get_user_by_username
+            cached = await get_user_by_username(a0)
+            if cached:
+                return cached["user_id"], cached["first_name"] or a0[1:], reason
             try:
                 u = await ctx.bot.get_chat(a0)
                 return u.id, u.first_name or a0[1:], reason

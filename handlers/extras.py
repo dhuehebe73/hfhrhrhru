@@ -2,7 +2,7 @@ import html, random, re, time
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from database import (get_all_chats, set_afk, get_afk, clear_afk, bump_stats, top_users,
-                      get_all_users, get_chat_member_ids, get_user_stats)
+                      get_all_users, get_chat_member_ids, get_user_stats, upsert_user_cache)
 from utils import require_admin, mention, dcmd, fmt_ago, get_args
 from config import OWNER_ID
 
@@ -74,6 +74,8 @@ async def _track_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     c = update.effective_chat
     if u and c and c.type != "private":
         await bump_stats(u.id, c.id)
+        if u.username:
+            await upsert_user_cache(u.id, u.username, u.first_name or "")
 
 async def top_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rows = await top_users(update.effective_chat.id, 10)
@@ -169,62 +171,53 @@ _STATUS_LABELS = {
 }
 
 async def info_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    from utils import resolve_user
     msg  = update.effective_message
-    args = get_args(update, ctx)
     chat = update.effective_chat
-    u    = None
+    args = get_args(update, ctx)
 
     if msg.reply_to_message and msg.reply_to_message.from_user:
         u = msg.reply_to_message.from_user
+        uid, fname = u.id, u.first_name or ""
     elif args:
-        a0 = args[0]
-        if a0.lstrip("-").isdigit():
-            try:
-                obj = await ctx.bot.get_chat(int(a0))
-                u   = obj
-            except Exception:
-                await msg.reply_text("❌ Kullanıcı bulunamadı."); return
-        elif a0.startswith("@"):
-            if chat and chat.type != "private":
-                try:
-                    member = await ctx.bot.get_chat_member(chat.id, a0)
-                    u = member.user
-                except Exception:
-                    pass
-            if not u:
-                try:
-                    obj = await ctx.bot.get_chat(a0)
-                    u   = obj
-                except Exception:
-                    pass
-        if not u:
-            await msg.reply_text("❌ Kullanıcı bulunamadı."); return
+        uid, fname, _ = await resolve_user(update, ctx)
+        if not uid:
+            await msg.reply_text("❌ Kullanıcı bulunamadı.\n💡 Önce grupta mesaj atmış olmalı."); return
+        try:
+            u = (await ctx.bot.get_chat(uid))
+        except Exception:
+            u = None
     else:
         u = update.effective_user
+        uid, fname = u.id, u.first_name or ""
 
     lines = []
-    full_name = html.escape((getattr(u, "full_name", None) or
-                             " ".join(filter(None, [getattr(u, "first_name", ""), getattr(u, "last_name", "")])) or
-                             str(u.id)))
-    premium = "⭐" if getattr(u, "is_premium", False) else ""
-    lines.append(f"👤 <b>{full_name}</b> {premium}".strip())
-    lines.append(f"🆔 <code>{u.id}</code>")
-    if getattr(u, "first_name", None):
-        lines.append(f"📝 İsim: {html.escape(u.first_name)}")
-    if getattr(u, "last_name", None):
-        lines.append(f"📝 Soyisim: {html.escape(u.last_name)}")
-    if getattr(u, "username", None):
-        lines.append(f"📛 @{u.username}")
-    lines.append(f"🔗 <a href='tg://user?id={u.id}'>Profil Linki</a>")
-    lines.append(f"🤖 Bot: {'Evet' if getattr(u, 'is_bot', False) else 'Hayır'}")
+    if u:
+        full = html.escape(getattr(u, "full_name", None) or
+                           " ".join(filter(None, [getattr(u,"first_name",""), getattr(u,"last_name","")])) or str(uid))
+        premium = " ⭐" if getattr(u, "is_premium", False) else ""
+        lines.append(f"👤 <b>{full}{premium}</b>")
+        if getattr(u, "first_name", None):
+            lines.append(f"📝 İsim: {html.escape(u.first_name)}")
+        if getattr(u, "last_name", None):
+            lines.append(f"📝 Soyisim: {html.escape(u.last_name)}")
+        if getattr(u, "username", None):
+            lines.append(f"📛 @{u.username}")
+        lines.append(f"🔗 <a href='tg://user?id={uid}'>Profil Linki</a>")
+        lines.append(f"🤖 Bot: {'Evet' if getattr(u, 'is_bot', False) else 'Hayır'}")
+    else:
+        lines.append(f"👤 <b>{html.escape(fname or str(uid))}</b>")
+        lines.append(f"🔗 <a href='tg://user?id={uid}'>Profil Linki</a>")
+
+    lines.append(f"🆔 <code>{uid}</code>")
 
     if chat and chat.type != "private":
         try:
-            member = await ctx.bot.get_chat_member(chat.id, u.id)
+            member = await ctx.bot.get_chat_member(chat.id, uid)
             lines.append(f"📊 Durum: {_STATUS_LABELS.get(member.status, member.status)}")
         except Exception:
             pass
-        stats = await get_user_stats(u.id, chat.id)
+        stats = await get_user_stats(uid, chat.id)
         if stats:
             lines.append(f"💬 Mesaj: {stats['messages']}")
             if stats["last_seen"]:
