@@ -505,8 +505,6 @@ async def help_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 def register(app):
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help",  help_cmd))
     app.add_handler(MessageHandler(dcmd("start"), start_cmd), group=10)
     app.add_handler(MessageHandler(dcmd("help"),  help_cmd),  group=10)
     app.add_handler(CallbackQueryHandler(

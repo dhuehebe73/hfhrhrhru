@@ -123,7 +123,6 @@ async def greroll_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def gaw_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
     user = query.from_user
 

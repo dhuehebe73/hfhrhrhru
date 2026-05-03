@@ -22,7 +22,7 @@ async def _on_member_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not result: return
     chat = result.chat
     old, new = result.old_chat_member, result.new_chat_member
-    user = new.from_user
+    user = new.user
 
     from telegram.constants import ChatMemberStatus as CMS
 

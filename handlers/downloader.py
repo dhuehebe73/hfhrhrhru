@@ -104,9 +104,18 @@ async def _ytdlp_download(url: str, audio_only: bool) -> tuple[str | None, str |
         common["cookiefile"] = cookies
 
     if audio_only:
-        opts = {**common, "format": "bestaudio/best"}
         if ffmpeg:
-            opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]
+            opts = {
+                **common,
+                "format": "bestaudio/best",
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+            }
+        else:
+            opts = {**common, "format": "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio/best"}
     else:
         opts = {**common, "format": "best[ext=mp4]/best[height<=720]/best"}
 
