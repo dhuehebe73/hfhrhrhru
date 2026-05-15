@@ -14,7 +14,7 @@ from database import get_connection, set_connection, clear_connection
 from utils import is_admin, dcmd, get_args, mention
 
 
-# ── Public utility (imported by admin/moderation handlers) ────────────────────
+# ── Herkese açık yardımcı (admin/moderation handler'ları tarafından içe aktarılır) ──
 
 async def get_connected_chat(update: Update,
                               ctx: ContextTypes.DEFAULT_TYPE) -> int | None:
@@ -30,12 +30,12 @@ async def get_connected_chat(update: Update,
     return conn["chat_id"]
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── İç yardımcılar ───────────────────────────────────────────────────────────
 
-async def _check_user_is_admin_in_chat(ctx: ContextTypes.DEFAULT_TYPE,
-                                        user_id: int,
-                                        chat_id: int) -> bool:
-    """Verilen chat'te kullanıcının admin olup olmadığını kontrol eder."""
+async def _user_is_admin_in_chat(ctx: ContextTypes.DEFAULT_TYPE,
+                                  user_id: int,
+                                  chat_id: int) -> bool:
+    """Belirtilen grupta kullanıcının admin olup olmadığını doğrular."""
     from config import OWNER_ID
     if user_id == OWNER_ID:
         return True
@@ -48,13 +48,13 @@ async def _check_user_is_admin_in_chat(ctx: ContextTypes.DEFAULT_TYPE,
         return False
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# ── Komutlar ─────────────────────────────────────────────────────────────────
 
 async def connect_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """
     /connect <chat_id>
-    Belirtilen gruba bağlanır. Kullanıcı o grubun admini olmak zorundadır.
-    Hem PM'den hem gruptan çalışır.
+    Belirtilen gruba bağlanır. Kullanıcının o grubun admini olması gerekir.
+    PM'den ve gruptan kullanılabilir.
     """
     msg  = update.effective_message
     user = update.effective_user
@@ -63,44 +63,56 @@ async def connect_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not args:
         await msg.reply_text(
             "❓ <b>Kullanım:</b> <code>/connect &lt;chat_id&gt;</code>\n\n"
-            "Örnek: <code>/connect -1001234567890</code>",
+            "Örnek: <code>/connect -1001234567890</code>\n\n"
+            "Bu komut ile PM'den grup komutlarını "
+            "(<code>/ban</code>, <code>/mute</code> vb.) kullanabilirsiniz.",
             parse_mode="HTML",
         )
         return
 
     raw = args[0]
     if not raw.lstrip("-").isdigit():
-        await msg.reply_text("❌ Geçersiz chat_id. Negatif bir tam sayı olmalıdır.")
-        return
-
-    chat_id = int(raw)
-
-    # Verify the bot is in that chat and fetch its title
-    try:
-        chat_obj = await ctx.bot.get_chat(chat_id)
-    except Exception:
         await msg.reply_text(
-            "❌ Bu gruba erişilemiyor. Botu gruba eklediğinizden emin olun.",
-        )
-        return
-
-    if chat_obj.type not in ("group", "supergroup"):
-        await msg.reply_text("❌ Yalnızca gruplara ve süper gruplara bağlanabilirsiniz.")
-        return
-
-    # Verify the user is admin in that chat
-    if not await _check_user_is_admin_in_chat(ctx, user.id, chat_id):
-        await msg.reply_text(
-            f"❌ <b>{chat_obj.title}</b> grubunda admin değilsiniz.",
+            "❌ Geçersiz chat_id. Negatif bir tam sayı olmalıdır.\n"
+            "Örnek: <code>-1001234567890</code>",
             parse_mode="HTML",
         )
         return
 
-    await set_connection(user.id, chat_id, chat_obj.title or str(chat_id))
+    chat_id = int(raw)
+
+    # Botun o grupta olup olmadığını ve grup bilgisini al
+    try:
+        chat_obj = await ctx.bot.get_chat(chat_id)
+    except Exception:
+        await msg.reply_text(
+            "❌ Bu gruba erişilemiyor. "
+            "Botu gruba eklediğinizden emin olun.",
+        )
+        return
+
+    if chat_obj.type not in ("group", "supergroup"):
+        await msg.reply_text(
+            "❌ Yalnızca gruplara ve süper gruplara bağlanabilirsiniz."
+        )
+        return
+
+    # Kullanıcının o gruptaki admin durumunu doğrula
+    if not await _user_is_admin_in_chat(ctx, user.id, chat_id):
+        await msg.reply_text(
+            f"❌ <b>{chat_obj.title}</b> grubunda admin değilsiniz.\n"
+            f"Bağlantı yalnızca admin yetkisine sahip kullanıcılar için geçerlidir.",
+            parse_mode="HTML",
+        )
+        return
+
+    title = chat_obj.title or str(chat_id)
+    await set_connection(user.id, chat_id, title)
     await msg.reply_text(
-        f"🔗 <b>{chat_obj.title}</b> grubuna bağlandınız!\n\n"
+        f"🔗 <b>{title}</b> grubuna başarıyla bağlandınız!\n\n"
         f"Artık PM'den gönderdiğiniz yönetim komutları "
-        f"(<code>/ban</code>, <code>/mute</code> vb.) bu grupta çalışacak.\n\n"
+        f"(<code>/ban</code>, <code>/mute</code>, <code>/kick</code> vb.) "
+        f"bu grupta çalışacak.\n\n"
         f"Bağlantıyı kesmek için: <code>/disconnect</code>",
         parse_mode="HTML",
     )
@@ -116,13 +128,17 @@ async def disconnect_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     conn = await get_connection(user.id)
     if not conn:
-        await msg.reply_text("ℹ️ Aktif bir bağlantınız yok.")
+        await msg.reply_text(
+            "ℹ️ Aktif bir bağlantınız bulunmuyor.\n\n"
+            "Bağlanmak için: <code>/connect &lt;chat_id&gt;</code>",
+            parse_mode="HTML",
+        )
         return
 
-    title = conn.get("chat_title", str(conn["chat_id"]))
+    title = conn.get("chat_title") or str(conn["chat_id"])
     await clear_connection(user.id)
     await msg.reply_text(
-        f"🔌 <b>{title}</b> grubundan bağlantı kesildi.",
+        f"🔌 <b>{title}</b> grubundan bağlantınız kesildi.",
         parse_mode="HTML",
     )
 
@@ -145,14 +161,14 @@ async def connection_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id    = conn["chat_id"]
-    chat_title = conn.get("chat_title", str(chat_id))
+    chat_title = conn.get("chat_title") or str(chat_id)
 
-    # Try to verify the connection is still valid
-    still_admin = await _check_user_is_admin_in_chat(ctx, user.id, chat_id)
-    status_line = (
-        "✅ Admin yetkiniz geçerli" if still_admin
-        else "⚠️ Bu grupta artık admin değilsiniz"
-    )
+    # Bağlantının hâlâ geçerli olup olmadığını kontrol et
+    still_admin = await _user_is_admin_in_chat(ctx, user.id, chat_id)
+    if still_admin:
+        status_line = "✅ Admin yetkiniz geçerli"
+    else:
+        status_line = "⚠️ Bu grupta artık admin değilsiniz"
 
     await msg.reply_text(
         f"🔗 <b>Aktif Bağlantı</b>\n\n"
@@ -164,13 +180,13 @@ async def connection_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── Register ──────────────────────────────────────────────────────────────────
+# ── Kayıt ─────────────────────────────────────────────────────────────────────
 
 def register(app):
     for cmd, handler in [
-        ("connect",     connect_cmd),
-        ("disconnect",  disconnect_cmd),
-        ("connection",  connection_cmd),
-        ("connected",   connection_cmd),
+        ("connect",    connect_cmd),
+        ("disconnect", disconnect_cmd),
+        ("connection", connection_cmd),
+        ("connected",  connection_cmd),
     ]:
         app.add_handler(MessageHandler(dcmd(cmd), handler), group=10)
