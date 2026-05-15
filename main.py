@@ -9,18 +9,22 @@ from telegram.ext import Application
 from config import TOKEN
 from database import init_db
 
-import handlers.info as info
-import handlers.admin as admin
-import handlers.warnings as warnings
-import handlers.filters as flts
-import handlers.welcome as welcome
-import handlers.notes as notes
-import handlers.translate as translate
-import handlers.downloader as downloader
-import handlers.giveaway as giveaway
-import handlers.extras as extras
-import handlers.moderation as moderation
-import handlers.settings as settings
+import handlers.info        as info
+import handlers.admin       as admin
+import handlers.filters     as flts
+import handlers.welcome     as welcome
+import handlers.notes       as notes
+import handlers.translate   as translate
+import handlers.downloader  as downloader
+import handlers.giveaway    as giveaway
+import handlers.extras      as extras
+import handlers.moderation  as moderation
+import handlers.settings    as settings
+import handlers.federation  as federation
+import handlers.locks       as locks
+import handlers.blacklist   as blacklist
+import handlers.antispam    as antispam
+import handlers.connection  as connection
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -36,28 +40,29 @@ async def _post_init(app: Application):
 
 
 async def _register_chat(update, ctx):
-    """Track every chat the bot is active in."""
     chat = update.effective_chat
     if chat and chat.type in ("group", "supergroup", "channel"):
         try:
             from database import register_chat
             await register_chat(chat.id, chat.type, chat.title or "")
-        except Exception: pass
+        except Exception:
+            pass
 
 
 async def _register_bot_membership(update, ctx):
-    """Register chats when bot is added as member/admin (including channels)."""
     result = update.my_chat_member
-    if not result: return
+    if not result:
+        return
     chat = result.chat
-    new = result.new_chat_member
+    new  = result.new_chat_member
     from telegram.constants import ChatMemberStatus as CMS
     if new.status in (CMS.ADMINISTRATOR, CMS.MEMBER):
         if chat.type in ("group", "supergroup", "channel"):
             try:
                 from database import register_chat
                 await register_chat(chat.id, chat.type, chat.title or "")
-            except Exception: pass
+            except Exception:
+                pass
 
 
 def build_app() -> Application:
@@ -69,25 +74,38 @@ def build_app() -> Application:
         .build()
     )
 
-    # Register chat tracker (lowest priority, all messages)
     from telegram.ext import MessageHandler, ChatMemberHandler, filters
-    app.add_handler(MessageHandler(filters.ALL, _register_chat), group=100)
-    app.add_handler(ChatMemberHandler(_register_bot_membership,
-                                      ChatMemberHandler.MY_CHAT_MEMBER), group=100)
 
-    # Register all feature modules
-    info.register(app)
-    admin.register(app)
-    warnings.register(app)
-    flts.register(app)
-    welcome.register(app)
-    notes.register(app)
-    translate.register(app)
-    downloader.register(app)
-    giveaway.register(app)
-    extras.register(app)
-    moderation.register(app)
-    settings.register(app)
+    # Lowest priority: track every chat the bot sees
+    app.add_handler(MessageHandler(filters.ALL, _register_chat), group=100)
+    app.add_handler(ChatMemberHandler(
+        _register_bot_membership, ChatMemberHandler.MY_CHAT_MEMBER), group=100)
+
+    # Priority order (lower group number = runs first):
+    # 5  = welcome / captcha / member events
+    # 6  = anti-flood
+    # 7  = locks
+    # 8  = blacklist
+    # 10 = explicit commands
+    # 15 = @herkes trigger
+    # 20 = stats / afk tracking
+
+    antispam.register(app)   # groups 6, 10
+    locks.register(app)      # groups 7, 10
+    blacklist.register(app)  # groups 8, 10
+    welcome.register(app)    # groups 5, 10
+    federation.register(app) # group 10
+    connection.register(app) # group 10
+    info.register(app)       # group 10
+    admin.register(app)      # group 10
+    flts.register(app)       # group 10
+    notes.register(app)      # group 10
+    translate.register(app)  # group 10
+    downloader.register(app) # group 10
+    giveaway.register(app)   # group 10
+    extras.register(app)     # groups 10, 15, 20
+    moderation.register(app) # group 10
+    settings.register(app)   # group 10
 
     return app
 
@@ -95,9 +113,13 @@ def build_app() -> Application:
 def main():
     app = build_app()
     logging.info("Bot başlıyor...")
-    app.run_polling(drop_pending_updates=True,
-                    allowed_updates=["message","callback_query","chat_member",
-                                     "my_chat_member","channel_post"])
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=[
+            "message", "callback_query", "chat_member",
+            "my_chat_member", "channel_post", "inline_query",
+        ],
+    )
 
 
 if __name__ == "__main__":

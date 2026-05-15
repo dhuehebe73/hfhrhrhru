@@ -43,7 +43,15 @@ async def init_db():
                 bot_filter       INTEGER DEFAULT 0,
                 slowmode         INTEGER DEFAULT 0,
                 warn_limit       INTEGER DEFAULT 3,
-                warn_action      TEXT    DEFAULT 'ban');
+                warn_action      TEXT    DEFAULT 'ban',
+                anti_raid        INTEGER DEFAULT 0,
+                anti_raid_limit  INTEGER DEFAULT 10,
+                anti_raid_action TEXT    DEFAULT 'mute');
+
+            CREATE TABLE IF NOT EXISTS connections(
+                user_id    INTEGER PRIMARY KEY,
+                chat_id    INTEGER NOT NULL,
+                chat_title TEXT    DEFAULT '');
 
             CREATE TABLE IF NOT EXISTS notes(
                 chat_id INTEGER, name TEXT,
@@ -96,6 +104,28 @@ async def init_db():
                 first_name TEXT DEFAULT '',
                 lang       TEXT DEFAULT 'en',
                 started_at INTEGER);
+
+            CREATE TABLE IF NOT EXISTS federations(
+                fed_id   TEXT PRIMARY KEY,
+                name     TEXT NOT NULL,
+                owner_id INTEGER NOT NULL);
+
+            CREATE TABLE IF NOT EXISTS fed_chats(
+                chat_id INTEGER PRIMARY KEY,
+                fed_id  TEXT NOT NULL);
+
+            CREATE TABLE IF NOT EXISTS fed_admins(
+                fed_id  TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY(fed_id, user_id));
+
+            CREATE TABLE IF NOT EXISTS fed_bans(
+                fed_id    TEXT NOT NULL,
+                user_id   INTEGER NOT NULL,
+                reason    TEXT DEFAULT '',
+                banned_by INTEGER,
+                banned_at INTEGER,
+                PRIMARY KEY(fed_id, user_id));
         """)
         await db.commit()
 
@@ -237,10 +267,12 @@ _SETTING_KEYS = {
     "auto_ban_leavers","anti_flood","flood_limit","locked",
     "link_filter","sticker_filter","media_filter","bot_filter",
     "slowmode","warn_limit","warn_action",
+    "anti_raid","anti_raid_limit","anti_raid_action",
 }
 _BOOL_SETTINGS = {
     "auto_ban_leavers","anti_flood","locked",
     "link_filter","sticker_filter","media_filter","bot_filter",
+    "anti_raid",
 }
 
 async def get_settings(cid: int) -> dict:
@@ -248,19 +280,23 @@ async def get_settings(cid: int) -> dict:
         async with db.execute(
             "SELECT auto_ban_leavers,anti_flood,flood_limit,locked,"
             "link_filter,sticker_filter,media_filter,bot_filter,"
-            "slowmode,warn_limit,warn_action FROM chat_settings WHERE chat_id=?", (cid,)
+            "slowmode,warn_limit,warn_action,"
+            "anti_raid,anti_raid_limit,anti_raid_action"
+            " FROM chat_settings WHERE chat_id=?", (cid,)
         ) as c:
             row = await c.fetchone()
     keys = ["auto_ban_leavers","anti_flood","flood_limit","locked",
             "link_filter","sticker_filter","media_filter","bot_filter",
-            "slowmode","warn_limit","warn_action"]
+            "slowmode","warn_limit","warn_action",
+            "anti_raid","anti_raid_limit","anti_raid_action"]
     if row:
         d = dict(zip(keys, row))
         for k in _BOOL_SETTINGS: d[k] = bool(d[k])
         return d
     return {"auto_ban_leavers":False,"anti_flood":True,"flood_limit":5,"locked":False,
             "link_filter":False,"sticker_filter":False,"media_filter":False,"bot_filter":False,
-            "slowmode":0,"warn_limit":3,"warn_action":"ban"}
+            "slowmode":0,"warn_limit":3,"warn_action":"ban",
+            "anti_raid":False,"anti_raid_limit":10,"anti_raid_action":"mute"}
 
 async def set_setting(cid: int, key: str, value):
     if key not in _SETTING_KEYS: raise ValueError(f"bad key: {key}")
@@ -535,3 +571,165 @@ async def is_approved(uid: int, cid: int) -> bool:
             "SELECT 1 FROM approved_users WHERE user_id=? AND chat_id=?", (uid, cid)
         ) as c:
             return await c.fetchone() is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEDERATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def create_federation(fed_id: str, name: str, owner_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO federations(fed_id, name, owner_id) VALUES(?,?,?)",
+            (fed_id, name, owner_id))
+        await db.commit()
+
+
+async def get_federation(fed_id: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT fed_id, name, owner_id FROM federations WHERE fed_id=?", (fed_id,)
+        ) as c:
+            row = await c.fetchone()
+    return {"fed_id": row[0], "name": row[1], "owner_id": row[2]} if row else None
+
+
+async def get_user_federation(owner_id: int) -> dict | None:
+    """Returns the federation owned by this user, or None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT fed_id, name, owner_id FROM federations WHERE owner_id=?", (owner_id,)
+        ) as c:
+            row = await c.fetchone()
+    return {"fed_id": row[0], "name": row[1], "owner_id": row[2]} if row else None
+
+
+async def get_chat_federation(chat_id: int) -> dict | None:
+    """Returns the federation this chat belongs to, or None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT f.fed_id, f.name, f.owner_id FROM federations f"
+            " JOIN fed_chats fc ON fc.fed_id = f.fed_id"
+            " WHERE fc.chat_id=?", (chat_id,)
+        ) as c:
+            row = await c.fetchone()
+    return {"fed_id": row[0], "name": row[1], "owner_id": row[2]} if row else None
+
+
+async def join_federation(fed_id: str, chat_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO fed_chats(chat_id, fed_id) VALUES(?,?)",
+            (chat_id, fed_id))
+        await db.commit()
+
+
+async def leave_federation(chat_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM fed_chats WHERE chat_id=?", (chat_id,))
+        await db.commit()
+
+
+async def fban_user(fed_id: str, user_id: int, reason: str, banned_by: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO fed_bans(fed_id, user_id, reason, banned_by, banned_at)"
+            " VALUES(?,?,?,?,?)",
+            (fed_id, user_id, reason, banned_by, int(time.time())))
+        await db.commit()
+
+
+async def unfban_user(fed_id: str, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM fed_bans WHERE fed_id=? AND user_id=?", (fed_id, user_id))
+        await db.commit()
+
+
+async def get_fban(fed_id: str, user_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id, reason, banned_by, banned_at FROM fed_bans"
+            " WHERE fed_id=? AND user_id=?", (fed_id, user_id)
+        ) as c:
+            row = await c.fetchone()
+    if not row:
+        return None
+    return {"user_id": row[0], "reason": row[1], "banned_by": row[2], "banned_at": row[3]}
+
+
+async def get_fban_list(fed_id: str) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id, reason, banned_by, banned_at FROM fed_bans WHERE fed_id=?"
+            " ORDER BY banned_at DESC", (fed_id,)
+        ) as c:
+            return [
+                {"user_id": r[0], "reason": r[1], "banned_by": r[2], "banned_at": r[3]}
+                for r in await c.fetchall()
+            ]
+
+
+async def get_fed_chats(fed_id: str) -> list[int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT chat_id FROM fed_chats WHERE fed_id=?", (fed_id,)
+        ) as c:
+            return [r[0] for r in await c.fetchall()]
+
+
+async def get_fed_admins(fed_id: str) -> list[int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id FROM fed_admins WHERE fed_id=?", (fed_id,)
+        ) as c:
+            return [r[0] for r in await c.fetchall()]
+
+
+async def fpromote(fed_id: str, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO fed_admins(fed_id, user_id) VALUES(?,?)",
+            (fed_id, user_id))
+        await db.commit()
+
+
+async def fdemote(fed_id: str, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM fed_admins WHERE fed_id=? AND user_id=?", (fed_id, user_id))
+        await db.commit()
+
+
+async def is_fed_admin(fed_id: str, user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM fed_admins WHERE fed_id=? AND user_id=?", (fed_id, user_id)
+        ) as c:
+            return await c.fetchone() is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONNECTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def get_connection(user_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT chat_id, chat_title FROM connections WHERE user_id=?", (user_id,)
+        ) as c:
+            row = await c.fetchone()
+    return {"chat_id": row[0], "chat_title": row[1]} if row else None
+
+async def set_connection(user_id: int, chat_id: int, chat_title: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO connections(user_id,chat_id,chat_title) VALUES(?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET chat_id=?,chat_title=?",
+            (user_id, chat_id, chat_title, chat_id, chat_title))
+        await db.commit()
+
+async def clear_connection(user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM connections WHERE user_id=?", (user_id,))
+        await db.commit()
