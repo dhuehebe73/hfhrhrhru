@@ -714,6 +714,37 @@ async def is_fed_admin(fed_id: str, user_id: int) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def get_connection(user_id: int) -> dict | None:
+    """Kullanıcının aktif bağlantısını döndürür. Yoksa None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT chat_id, chat_title FROM connections WHERE user_id=?", (user_id,)
+        ) as c:
+            row = await c.fetchone()
+    return {"chat_id": row[0], "chat_title": row[1]} if row else None
+
+
+async def set_connection(user_id: int, chat_id: int, chat_title: str):
+    """Kullanıcının bağlantısını kaydeder veya günceller."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO connections(user_id, chat_id, chat_title) VALUES(?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET chat_id=?, chat_title=?",
+            (user_id, chat_id, chat_title, chat_id, chat_title))
+        await db.commit()
+
+
+async def clear_connection(user_id: int):
+    """Kullanıcının bağlantısını siler."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM connections WHERE user_id=?", (user_id,))
+        await db.commit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONNECTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def get_connection(user_id: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT chat_id, chat_title FROM connections WHERE user_id=?", (user_id,)

@@ -53,6 +53,14 @@ async def _on_member_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if not joined: return
 
+    # Anti-raid kontrolü — raid modundaysa karşılamayı atla
+    try:
+        from handlers.antispam import check_raid
+        if await check_raid(ctx, chat.id, user.id, chat):
+            return
+    except Exception:
+        pass
+
     # Re-join check
     if await has_left(user.id, chat.id):
         s = await get_settings(chat.id)
