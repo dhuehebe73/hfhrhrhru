@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0D0D0D">
+<title>Baron AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0D0D0D;--panel:#161616;--panel2:#1E1E1E;--line:#2A2A2A;
+  --text:#E8E8E8;--muted:#888;--faint:#555;
+  --accent:#C9A227;--accent-dim:#7A6218;--red:#9B3A3A;
+  --serif:'Fraunces',Georgia,serif;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-t:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overscroll-behavior:none}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.5;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+::-webkit-scrollbar{width:0;height:0}
+
+/* ── ust cubuk ──────────────────────────────────────────────── */
+.top{display:flex;align-items:center;gap:10px;padding:calc(var(--safe-t)+10px) 12px 10px;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:20}
+.ib{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;color:var(--muted);flex:none}
+.ib:active{background:var(--panel2)}
+.brand{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.crest{width:26px;height:26px;flex:none;border:1px solid var(--accent-dim);border-radius:3px;display:grid;place-items:center;font-family:var(--serif);font-size:14px;color:var(--accent);background:linear-gradient(160deg,#1A1A1A,#111)}
+.brand h1{font-family:var(--serif);font-weight:600;font-size:19px;margin:0;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-chip{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:6px 11px;max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
+.model-chip:active{background:var(--panel2)}
+
+/* ── mesajlar ───────────────────────────────────────────────── */
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+.thread{max-width:780px;margin:0 auto;padding:18px 16px 8px}
+.msg{margin-bottom:26px;animation:rise .2s ease}
+@keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.msg{animation:none}}
+
+.msg.user .bubble{background:var(--panel);border-left:2px solid var(--accent-dim);padding:12px 14px;border-radius:4px 12px 12px 4px;white-space:pre-wrap;word-break:break-word;font-size:15.5px}
+.msg.user .flist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ftag{font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.ftag small{color:var(--faint);margin-left:4px}
+
+.msg.ai .body,.msg.parallel .body{font-family:var(--serif);font-size:17px;line-height:1.62;word-break:break-word}
+.msg.ai .body p,.msg.parallel .body p{margin:0 0 .85em}
+.msg.ai .body p:last-child,.msg.parallel .body p:last-child{margin-bottom:0}
+.msg.ai .body h1,.msg.ai .body h2,.msg.ai .body h3{font-family:var(--serif);font-weight:600;line-height:1.25;margin:1.2em 0 .5em}
+.msg.ai .body h1{font-size:1.35em}.msg.ai .body h2{font-size:1.2em}.msg.ai .body h3{font-size:1.05em}
+.msg.ai .body ul,.msg.ai .body ol{margin:0 0 .85em;padding-left:1.3em}
+.msg.ai .body li{margin-bottom:.3em}
+.msg.ai .body a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.msg.ai .body blockquote{margin:0 0 .85em;padding-left:14px;border-left:2px solid var(--line);color:var(--muted)}
+.msg.ai .body hr{border:none;border-top:1px solid var(--line);margin:1.4em 0}
+.msg.ai .body table,.msg.parallel .body table{width:100%;border-collapse:collapse;margin:0 0 .9em;font-family:var(--sans);font-size:14px}
+.msg.ai .body th,.msg.ai .body td,.msg.parallel .body th,.msg.parallel .body td{border:1px solid var(--line);padding:7px 9px;text-align:left}
+.msg.ai .body th,.msg.parallel .body th{background:var(--panel2);font-weight:600}
+
+code.il{font-family:var(--mono);font-size:.84em;background:var(--panel2);padding:2px 5px;border-radius:4px;color:#E4C86B}
+.code{position:relative;margin:0 0 .9em;border:1px solid var(--line);border-radius:8px;background:#0A0A0A;overflow:hidden}
+.codeh{font-family:var(--sans);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:7px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.cpb{color:var(--muted);font-size:10px;letter-spacing:.1em;cursor:pointer;background:none;border:none}
+.code pre{margin:0;padding:12px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#D7CFC4}
+
+/* dusunme */
+.think{border:1px solid var(--line);border-radius:8px;margin-bottom:12px;background:var(--panel);overflow:hidden}
+.think summary{list-style:none;cursor:pointer;padding:9px 12px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-dim);display:flex;align-items:center;gap:7px}
+.think summary::-webkit-details-marker{display:none}
+.think[open] summary{border-bottom:1px solid var(--line)}
+.think .inner{padding:11px 12px;font-family:var(--mono);font-size:12px;line-height:1.65;color:var(--muted);white-space:pre-wrap;max-height:300px;overflow-y:auto}
+.pulse{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.ptag{display:inline-block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-dim);margin-bottom:6px}
+.etime{font-size:10px;color:var(--faint);margin-right:auto}
+
+.acts{display:flex;gap:6px;margin-top:10px;align-items:center}
+.acts button{font-size:11px;letter-spacing:.06em;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+.acts button:active{color:var(--accent);border-color:var(--accent-dim)}
+
+.err{border:1px solid var(--red);background:rgba(155,58,58,.12);color:#E8B4BC;border-radius:8px;padding:11px 13px;font-size:14px}
+
+/* ── paralel sekmeler ───────────────────────────────────────── */
+.ptabs{display:flex;gap:4px;margin-bottom:12px;overflow-x:auto;padding-bottom:4px}
+.ptab{font-size:12px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;color:var(--muted);white-space:nowrap}
+.ptab.on{border-color:var(--accent);color:var(--accent);background:rgba(201,162,39,.08)}
+.ppane.hidden{display:none}
+
+/* ── bos ekran ──────────────────────────────────────────────── */
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;gap:6px}
+.empty .mark{width:58px;height:58px;border:1px solid var(--accent-dim);border-radius:5px;display:grid;place-items:center;font-family:var(--serif);font-size:29px;color:var(--accent);margin-bottom:14px;background:linear-gradient(160deg,#1A1A1A,#0F0F0F)}
+.empty h2{font-family:var(--serif);font-weight:600;font-size:25px;margin:0}
+.empty p{color:var(--faint);font-size:13.5px;margin:0 0 20px;max-width:310px}
+.chips{display:flex;flex-direction:column;gap:8px;width:100%;max-width:330px}
+.chips button{border:1px solid var(--line);border-radius:9px;padding:11px 14px;text-align:left;font-size:14px;color:var(--muted);background:var(--panel)}
+.chips button:active{border-color:var(--accent-dim);color:var(--text)}
+
+/* ── dosya cubugu ───────────────────────────────────────────── */
+#fileBar{display:flex;flex-wrap:wrap;gap:5px;padding:6px 12px 0;max-width:780px;margin:0 auto}
+.fchip{display:flex;align-items:center;gap:6px;font-size:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.fn{color:var(--text);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fs{color:var(--faint)}
+.fx{color:var(--faint);font-size:14px;padding:0 2px;cursor:pointer;background:none;border:none}
+
+/* ── yazma alani ────────────────────────────────────────────── */
+.composer{border-top:1px solid var(--line);background:var(--bg);padding:10px 12px calc(var(--safe-b)+10px)}
+.cbox{max-width:780px;margin:0 auto;display:flex;align-items:flex-end;gap:6px;border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:5px 5px 5px 10px}
+.cbox:focus-within{border-color:var(--accent-dim)}
+#input{flex:1;background:none;border:none;resize:none;outline:none;font-size:16px;line-height:1.45;max-height:170px;padding:8px 0;color:var(--text)}
+#input::placeholder{color:var(--faint)}
+.cbox .ib{width:34px;height:34px;color:var(--muted)}
+.cbox .ib:active{color:var(--accent)}
+.cbox .ib.recording{color:#E85050;animation:pulse 1s ease-in-out infinite}
+.send{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#111;display:grid;place-items:center;flex:none;transition:opacity .15s}
+.send[disabled]{opacity:.28}
+.send.stop{background:var(--red);color:#F3DDE1}
+.hint{max-width:780px;margin:6px auto 0;font-size:10.5px;letter-spacing:.05em;color:var(--faint);display:flex;justify-content:space-between}
+
+/* ── cekmece ────────────────────────────────────────────────── */
+.veil{position:fixed;inset:0;background:rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .22s;z-index:40}
+.veil.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(310px,84vw);background:var(--panel);border-right:1px solid var(--line);transform:translateX(-100%);transition:transform .24s ease;z-index:50;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.drawer header{padding:calc(var(--safe-t)+16px) 16px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.drawer header span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.newchat{color:var(--accent);font-size:13px;border:1px solid var(--accent-dim);border-radius:999px;padding:5px 12px}
+.sessions{flex:1;overflow-y:auto;padding:8px}
+.sess{padding:11px 12px;border-radius:8px;margin-bottom:2px;cursor:pointer;display:flex;align-items:center;gap:10px}
+.sess.on{background:var(--panel2)}
+.sess .t{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .d{font-size:10.5px;color:var(--faint);margin-top:2px}
+.sess .x{color:var(--faint);font-size:16px;padding:0 4px;flex:none;background:none;border:none;cursor:pointer}
+.drawer footer{padding:10px 12px calc(var(--safe-b)+12px);border-top:1px solid var(--line)}
+.drawer footer button{width:100%;text-align:left;padding:11px 12px;border-radius:8px;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:10px}
+.drawer footer button:active{background:var(--panel2)}
+
+/* ── alt sayfa ──────────────────────────────────────────────── */
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:90vh;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;transform:translateY(101%);transition:transform .26s cubic-bezier(.32,.72,0,1);z-index:60;display:flex;flex-direction:column}
+.sheet.on{transform:none}
+.grab{width:34px;height:4px;background:var(--line);border-radius:2px;margin:9px auto 2px;flex:none}
+.sheet h3{font-family:var(--serif);font-size:18px;font-weight:600;margin:0;padding:8px 18px 12px;border-bottom:1px solid var(--line);flex:none}
+.sheet .content{overflow-y:auto;padding:16px 18px calc(var(--safe-b)+22px)}
+.field{margin-bottom:17px}
+.field label{display:block;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+.field input,.field textarea,.field select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--accent-dim)}
+.field textarea{resize:vertical;min-height:76px;font-size:14px;line-height:1.5}
+.field .note{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.45}
+.seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{flex:1;padding:10px 4px;font-size:12px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--accent);color:#111;font-weight:500}
+.primary{width:100%;background:var(--accent);color:#111;border-radius:10px;padding:13px;font-weight:600;font-size:15px;margin-top:4px}
+.primary:active{background:var(--accent-dim)}
+.ghost{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;color:var(--muted);margin-top:9px}
+
+/* saglayici listesi */
+.plist{margin-bottom:6px}
+.pitem{display:flex;align-items:center;gap:11px;padding:12px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px}
+.pitem.on{border-color:var(--accent-dim);background:var(--panel2)}
+.pitem .info{flex:1;min-width:0}
+.pitem .nm{font-size:14.5px;font-weight:500}
+.pitem .sub{font-size:11px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.ok{background:var(--accent)}.dot.no{background:var(--red)}
+
+/* katalog */
+.catlist{margin-top:12px}
+.catitem{display:flex;align-items:center;gap:11px;padding:11px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;cursor:pointer}
+.catitem:active{border-color:var(--accent-dim)}
+.catitem.added{opacity:.4;cursor:default}
+.ci{font-size:20px;flex:none;width:32px;text-align:center}
+.catitem .nm{font-size:13.5px;font-weight:500}
+.catitem .sub{font-size:11px;color:var(--faint);margin-top:2px}
+
+/* paralel ayar */
+.pchecks{display:flex;flex-direction:column;gap:6px}
+.pcheck{font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px;cursor:pointer}
+.pcheck input{accent-color:var(--accent)}
+#parallelCfg select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text);margin-top:6px}
+
+/* model secici */
+.mlist{max-height:52vh;overflow-y:auto;margin:-4px -4px 0;padding:4px}
+.mitem{padding:12px 13px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:9px;font-size:14px}
+.mitem.on{border-color:var(--accent);color:var(--accent)}
+.star{color:var(--accent-dim);font-size:11px}
+.mopt{font-size:12px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;margin:3px 3px 3px 0;color:var(--muted);background:none;cursor:pointer}
+.mopt.on{border-color:var(--accent);color:var(--accent)}
+
+.toast{position:fixed;left:50%;bottom:calc(var(--safe-b)+88px);transform:translate(-50%,14px);background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px 17px;border-radius:999px;font-size:13.5px;opacity:0;transition:.22s;z-index:90;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <button class="ib" id="menuBtn" aria-label="Sohbetler">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+  <div class="brand"><div class="crest">B</div><h1>Baron AI</h1></div>
+  <button class="model-chip" id="modelChip">model</button>
+</div>
+
+<div class="scroll" id="scroll"><div class="thread" id="thread"></div></div>
+
+<div id="fileBar" class="hidden"></div>
+
+<div class="composer">
+  <div class="cbox">
+    <button class="ib" id="fileBtn" aria-label="Dosya ekle">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+    </button>
+    <textarea id="input" rows="1" placeholder="Bir şey sor…" enterkeyhint="send"></textarea>
+    <button class="ib hidden" id="micBtn" aria-label="Sesle yaz">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    </button>
+    <button class="send" id="send" disabled aria-label="Gönder">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+  </div>
+  <div class="hint"><span id="hintL"></span><span id="hintR"></span></div>
+</div>
+
+<div class="veil" id="veil"></div>
+
+<aside class="drawer" id="drawer">
+  <header>
+    <span>Sohbetler</span>
+    <button class="newchat" id="newChat">+ Yeni</button>
+  </header>
+  <div class="sessions" id="sessions"></div>
+  <footer>
+    <button id="openSettings">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Ayarlar
+    </button>
+  </footer>
+</aside>
+
+<!-- ayarlar -->
+<section class="sheet" id="settingsSheet">
+  <div class="grab"></div>
+  <h3>Ayarlar</h3>
+  <div class="content">
+    <div class="field">
+      <label>Sağlayıcılar</label>
+      <div class="plist" id="plist"></div>
+      <button class="ghost" id="addProvider">+ Elle ekle</button>
+    </div>
+    <div class="field">
+      <label>Hazır sağlayıcı ekle</label>
+      <div class="catlist" id="catalogList"></div>
+    </div>
+    <div class="field">
+      <label>Çalışma modu</label>
+      <div class="seg" id="modeSeg">
+        <button data-v="off">Tekli</button>
+        <button data-v="parallel">Paralel</button>
+        <button data-v="leader">Lider</button>
+      </div>
+      <div class="note">Paralel: aynı soruyu birden fazla modele gönderir. Lider: bir model diğerlerini yönetir.</div>
+    </div>
+    <div class="field hidden" id="parallelCfg"></div>
+    <div class="field">
+      <label>Düşünme</label>
+      <div class="seg" id="thinkSeg">
+        <button data-v="kapali">Kapalı</button>
+        <button data-v="az">Az</button>
+        <button data-v="orta">Orta</button>
+        <button data-v="cok">Çok</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Sistem talimatı</label>
+      <textarea id="sysPrompt" placeholder="Nasıl davranmasını istiyorsun?"></textarea>
+    </div>
+    <div class="field">
+      <label>En fazla yanıt uzunluğu</label>
+      <input id="maxTok" type="number" min="256" max="128000" step="256">
+    </div>
+    <button class="primary" id="saveSettings">Kaydet</button>
+    <button class="ghost" id="wipe">Tüm veriyi sil</button>
+  </div>
+</section>
+
+<!-- saglayici duzenleme -->
+<section class="sheet" id="provSheet">
+  <div class="grab"></div>
+  <h3 id="provTitle">Sağlayıcı</h3>
+  <div class="content">
+    <div class="field">
+      <label>İsim</label>
+      <input id="pName" placeholder="Groq" autocapitalize="off">
+    </div>
+    <div class="field">
+      <label>Tür</label>
+      <div class="seg" id="pType">
+        <button data-v="openai">OpenAI</button>
+        <button data-v="anthropic">Anthropic</button>
+        <button data-v="gemini">Gemini</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Adres</label>
+      <input id="pBase" placeholder="https://api.groq.com/openai" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <div class="note">Kök adres. Sonuna /v1/messages yazma.</div>
+    </div>
+    <div class="field">
+      <label>API anahtarı</label>
+      <input id="pKey" type="password" placeholder="sk-…" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <div class="note">Sadece bu telefonda saklanır.</div>
+    </div>
+    <div class="field">
+      <label>Model</label>
+      <input id="pModel" placeholder="llama-3.3-70b-versatile" autocapitalize="off" spellcheck="false">
+      <div id="pModelList" class="hidden" style="margin-top:8px;display:flex;flex-wrap:wrap"></div>
+    </div>
+    <button class="primary" id="pSave">Kaydet</button>
+    <button class="ghost" id="pDelete">Bu sağlayıcıyı sil</button>
+  </div>
+</section>
+
+<!-- model secici -->
+<section class="sheet" id="modelSheet">
+  <div class="grab"></div>
+  <h3>Model seç</h3>
+  <div class="content">
+    <div class="mlist" id="mlist"></div>
+    <button class="ghost" id="refreshModels">Listeyi yenile</button>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/store.js"></script>
+<script src="js/providers.js"></script>
+<script src="js/stream.js"></script>
+<script src="js/parallel.js"></script>
+<script src="js/markdown.js"></script>
+<script src="js/files.js"></script>
+<script src="js/speech.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
